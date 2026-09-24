@@ -60,7 +60,8 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
   - Tester: `As4SignatureProcessorTest` (4): verifisering over body + vedlegg via `WSSecurityEngine`, endret vedlegg avvises, ingen digest-input bufret for vedleggsreferansen (body fortsatt bufret), og kontrolltest som viser at gammel `validate` bufrer hele vedlegget.
   - Hele `oxalis-ng-as4`: **143 tester, 0 feil**. `SendReceiveTest` med debug-logging viser at serveren bruker `As4SignatureProcessor` (klienten bruker standard `SignatureProcessor` for kvitteringen).
   - Brukerens server, 700 MiB, **`--memory=2g`** (heap 1 434 MiB): **gikk gjennom**, **62 MiB brukt** ved `ReceiptPersister` (1 372 MiB ledig), total tid 48,9 s.
-  - **M9b FERDIG** (gjenstår bare en ny tamper-test som kontroll).
+  - Tamper-test med M9b: fortsatt avvist (`AEADBadTagException: mac check in GCM failed`).
+  - **M9b FERDIG.**
 
 ### Oppsummering mottak (700 MiB → ~741 MB komprimert)
 
