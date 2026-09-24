@@ -38,6 +38,13 @@ mvn -pl oxalis-ng-extension/oxalis-ng-as4 -am test
 - Klassene i `oxalis-ng-as4/src/main/java/org/apache/cxf/attachment` er forks av CXF; sikkerhetsfikser i CXF når ikke disse automatisk (se kommentar i `As4AttachmentDeserializer`).
 - Endringer skal matche eksisterende stil og kommentartetthet.
 
+## Git-regler
+
+- **Én endring per commit.** Implementer bare ett tiltak eller én logisk endring om gangen, og stopp når den er ferdig og testet, slik at den kan committes alene. Ikke bland flere tiltak (f.eks. M8 og M9) i samme endring.
+- **Kjør aldri git-kommandoer som endrer repoet** (`git add`, `git commit`, `git push`, `git checkout`, `git merge`, `git rebase`, `git reset`, `git stash` osv.). Brukeren kjører git selv fra kommandolinja.
+- Etter hver endring: foreslå `git add`- og `git commit`-kommandoene i en egen `bash`-blokk, med de konkrete filene og en commit-melding som beskriver endringen.
+- Lesende git-kommandoer (`git status`, `git diff`, `git log`, `git show`) er greit å bruke.
+
 ## Brukerens miljø
 
 - Mottakssiden kjører i container med minne som hovedbegrensning. JVM-flagg: `-XX:InitialRAMPercentage=75.0 -XX:MaxRAMPercentage=75.0`, Java 25.
