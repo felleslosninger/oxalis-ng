@@ -48,7 +48,11 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
   - Bygg: oxalis-ng må bygges med JDK 21 (`JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem`) – Lombok 1.18.38 støtter ikke JDK 25.
   - Modultester: 150 OK; de 6 Jetty-testene (`SendReceiveTest`, `AS4StatusServletTest`, 4 MLS-tester) kunne ikke starte fordi port 8080 var opptatt av brukerens container. **Må kjøres på nytt med ledig port.**
   - Brukerens server, 700 MiB, `--memory=4g`: **1 072 MiB ledig** ved `ReceiptPersister` (mot 24 MiB med bare M8, +1 048 MiB ≈ WSS4J-bufferen på 1 GiB).
-  - Gjenstår: `--memory=2g`-test, tamper-test med sjekk av at `/data/cxf-tmp` er tom etter avvisning, og Jetty-testene. Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+  - `/data/cxf-tmp`: under mottak to filer (rå kryptert ~741 MB + M9s dekrypterte kopi), **tom etter vellykket mottak**.
+  - `--memory=2g` (heap ~1 433 MiB): **OOM**. Årsak (ny, tredje kopi): WSS4J `SignatureProcessor` setter `javax.xml.crypto.dsig.cacheReference=TRUE`; i Santuario `DOMReference` gjør det at `DigesterOutputStream(md, true)` legger all digest-input (hele vedlegget) i en `UnsyncByteArrayOutputStream`, og kopien (`digestInput`) lever til forespørselen er ferdig. Forklarer 1 796 MiB brukt i 4g-testen (ikke søppel, som først antatt).
+  - Upstream-fiks: **WSS-727** (commit 6726da983f, 2026-09-22) – slår av `cacheReference` bare for vedleggsreferanser og kjenner dem igjen på transform-algoritmen. Kun på `master` (4.x), ikke i 3.0.6/4.0.2 og ikke på `3_0_x-fixes`.
+  - Foreslått **M9b**: kopi av WSS4J 3.0.5 `SignatureProcessor` med WSS-727 som `As4SignatureProcessor`, registrert via `WSSConfig` på AS4-endepunktet (`PolicyBasedWSS4JInInterceptor` har ingen konstruktør for `wss4j.processor.map`). Forventet −0,75 til −1,5 GB → 2g realistisk. Fjernes når WSS4J med WSS-727 tas i bruk.
+  - Gjenstår for M9: tamper-test med sjekk av at `/data/cxf-tmp` er tom etter avvisning, og Jetty-testene (krever ledig port 8080). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
