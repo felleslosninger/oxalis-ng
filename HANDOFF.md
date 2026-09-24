@@ -59,7 +59,19 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
   - Verifisert at Santuarios `XMLSignature.validate` gjør det samme som upstream-løkken (manifester valideres bare med `org.jcp.xml.dsig.validateManifests`, som WSS4J ikke setter).
   - Tester: `As4SignatureProcessorTest` (4): verifisering over body + vedlegg via `WSSecurityEngine`, endret vedlegg avvises, ingen digest-input bufret for vedleggsreferansen (body fortsatt bufret), og kontrolltest som viser at gammel `validate` bufrer hele vedlegget.
   - Hele `oxalis-ng-as4`: **143 tester, 0 feil**. `SendReceiveTest` med debug-logging viser at serveren bruker `As4SignatureProcessor` (klienten bruker standard `SignatureProcessor` for kvitteringen).
-  - Gjenstår: brukerens 700 MiB-test med `--memory=2g`. Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+  - Brukerens server, 700 MiB, **`--memory=2g`** (heap 1 434 MiB): **gikk gjennom**, **62 MiB brukt** ved `ReceiptPersister` (1 372 MiB ledig), total tid 48,9 s.
+  - **M9b FERDIG** (gjenstår bare en ny tamper-test som kontroll).
+
+### Oppsummering mottak (700 MiB → ~741 MB komprimert)
+
+| Etter | Container | Brukt ved `ReceiptPersister` | Tid |
+|---|---|---|---|
+| Baseline | 8 GB | 3 556 MiB | ~51 s |
+| M8 | 4 GB | 2 844 MiB | ~48 s |
+| M8 + M9 | 4 GB | 1 796 MiB | – |
+| M8 + M9 + M9b | **2 GB** | **62 MiB** | ~49 s |
+
+Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp-filer i `/data/cxf-tmp` (~2 × komprimert størrelse per samtidige melding under mottak). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
