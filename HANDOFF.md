@@ -13,6 +13,17 @@ Payloadene er en liten XML med ett element som inneholder kryptert binærdata i 
 - Analyse ferdig (bare hovedkode, ikke test). Ingen kode endret.
 - Neste steg: runde 1 (konfigurasjon, M2–M7), deretter **M8** som første kodetiltak. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
+## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
+
+- Egen Jetty 11-`Main` (`no.digdir.efm.oxalis.server.Main`): `QueuedThreadPool` max 500 tråder, `ServerConnector` på 8080 uten satt `idleTimeout` (Jetty-standard 30 s), `GuiceFilter` + `OxalisGuiceContextListener`.
+- Registrerer BouncyCastle **sist** med vilje: BC på plass 1 ødela innlasting av PKCS12/JKS-keystore (`BadPaddingException`). Derfor må M8 gjøres med `JCEMapper.setProviderId("BC")` (bare Santuario/WSS4J), ikke ved å endre rekkefølgen på providere. M8 kan legges i deres `registerBouncyCastleProvider()` – ingen Oxalis-endring nødvendig.
+- M4: sett `connector.setIdleTimeout(900_000)` i deres `Main`.
+- M5: **utsatt** – under testing sendes bare én fil om gangen. Må på plass før produksjon hvis M8/M9 ikke er ferdige da. Semafor-filter før `GuiceFilter`. Oxalis-sendere bruker chunked overføring (ingen `Content-Length`), så filteret må telle bytes og ta en plass i semaforen når terskelen passeres, ikke bare se på headeren.
+- Egen `PersisterHandler` (`CustomPersister`) – **M7 gjennomgått, OK.** Sender strømmen til `StandardBusinessDocumentStreamParser` (`~/src/efm-peppol-accesspoint-testing/messages/.../parsers`), som bruker Woodstox 7.1.0 med `IS_COALESCING=false` og `readElementAsBinary()` i biter på 64 KB (`BinaryElementInputStream`). Testet med 256 MB heap: 1,4 mrd. base64-tegn → 37 MB heap, 2,8 mrd. (over 2³¹) → 37 MB heap. Woodstox-grensene er som standard `Integer.MAX_VALUE` for tekstlengde og `Long.MAX_VALUE` for dokumentet.
+  - Gjenstår: `storeBinary()` skriver foreløpig til `nullOutputStream()` (FIXME). Ekte lagring må strømme (multipart ved blob-lagring) og skjer før AS4-kvitteringen, så opplastingstiden teller mot avsenders timeout.
+  - `persist(...)` returnerer `Path.of("HelloFromPayloadPersister")` – må bli en ekte sti eller referanse i produksjon.
+  - Minneloggingen bør bruke brukt minne og `MemoryPoolMXBean.getPeakUsage()`, ikke `totalMemory()`, som er konstant med `InitialRAMPercentage=75`.
+
 ## Funn – hvor minnet går
 
 ### Mottak (i dag ~4–6 GB heap per melding på 1 GB komprimert)
