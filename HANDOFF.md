@@ -35,6 +35,7 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
 - M8 med `StreamingGcmProvider`, første kjøring: startloggen viste `AES/GCM/NoPadding resolves to provider SunJCE` – provideren er ikke i bruk ennå. Feilsøkes med logging av provider-rekkefølge, `getService(...)` og eksplisitt `Cipher.getInstance("AES/GCM/NoPadding", "StreamingGCM")`.
 - **M8 aktiv** (2026-09-24): `StreamingGCM inserted at position 1, AES/GCM/NoPadding resolves to provider StreamingGCM`. Årsak til første feil: provider-klassen og `insertProviderAt` manglet i brukerens `Main`. `JCEMapper.setProviderId("BC")` er fjernet (ingen effekt på vedlegg, flyttet bare signatur/digest/RSA-OAEP til BC).
 - M8, test med `--memory=8g`: heap brukt ved `ReceiptPersister` **2 822 MiB** (mot 3 556 i baseline, −734 MiB). Øyeblikksbilde med ZGC-søppel – ikke avgjørende.
+  - Høyeste verdi etter GC i `gc.log` (`grep -oE '\)->[0-9]+M' gc.log | sort -t'>' -k2 -n | tail -1`): **2 820 MB** med M8, mot **4 358 MB** i kjøringen før provideren virket (**−1 538 MB**). Med generasjonsbasert ZGC inkluderer verdien gammelt søppel, så den er grov, men sammenlignbar mellom kjøringer med samme oppsett.
 - Neste steg: samme test med `--memory=4g` (~2,8 GB heap). Uten M8 forventes OOM, med M8 skal den gå. Deretter negativ test (endret byte i kryptert vedlegg skal avvises før `CustomPersister`). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
