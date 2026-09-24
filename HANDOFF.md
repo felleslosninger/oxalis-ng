@@ -54,7 +54,12 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
   - Foreslått **M9b**: kopi av WSS4J 3.0.5 `SignatureProcessor` med WSS-727 som `As4SignatureProcessor`, registrert via `WSSConfig` på AS4-endepunktet (`PolicyBasedWSS4JInInterceptor` har ingen konstruktør for `wss4j.processor.map`). Forventet −0,75 til −1,5 GB → 2g realistisk. Fjernes når WSS4J med WSS-727 tas i bruk.
   - Tamper-test med 700 MiB: to temp-filer under mottak, **`/data/cxf-tmp` tom etter avvisning** – opprydding i out-fault-kjeden virker.
   - Hele `oxalis-ng-as4`-testsuiten med ledig port 8080: **139 tester, 0 feil, 0 hoppet over** (inkl. `SendReceiveTest`, `AS4StatusServletTest`, MLS-testene og `As4RereadableAttachmentTest`).
-  - **M9 FERDIG.** Neste: M9b (WSS-727 lokalt). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+  - **M9 FERDIG.** Neste: M9b (WSS-727 lokalt).
+- **M9b implementert** (ikke committet): `org.apache.wss4j.dom.processor.As4SignatureProcessor` = WSS4J 3.0.5 `SignatureProcessor` + WSS-727 (diff mot original er nøyaktig upstream-patchen + klassenavn; `validateSignature` er package-private for testen). Registrert i `As4Servlet.loadBus()` via `WSSConfig` på endepunktet (`endpointImpl.getProperties().put(WSSConfig.class.getName(), ...)`, `setProcessor(WSConstants.SIGNATURE, As4SignatureProcessor.class)`) – CXF bruker en `WSSConfig` fra kontekst-egenskapene hvis den finnes.
+  - Verifisert at Santuarios `XMLSignature.validate` gjør det samme som upstream-løkken (manifester valideres bare med `org.jcp.xml.dsig.validateManifests`, som WSS4J ikke setter).
+  - Tester: `As4SignatureProcessorTest` (4): verifisering over body + vedlegg via `WSSecurityEngine`, endret vedlegg avvises, ingen digest-input bufret for vedleggsreferansen (body fortsatt bufret), og kontrolltest som viser at gammel `validate` bufrer hele vedlegget.
+  - Hele `oxalis-ng-as4`: **143 tester, 0 feil**. `SendReceiveTest` med debug-logging viser at serveren bruker `As4SignatureProcessor` (klienten bruker standard `SignatureProcessor` for kvitteringen).
+  - Gjenstår: brukerens 700 MiB-test med `--memory=2g`. Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
