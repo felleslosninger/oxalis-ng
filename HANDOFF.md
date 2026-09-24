@@ -53,7 +53,8 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
   - Upstream-fiks: **WSS-727** (commit 6726da983f, 2026-09-22) – slår av `cacheReference` bare for vedleggsreferanser og kjenner dem igjen på transform-algoritmen. Kun på `master` (4.x), ikke i 3.0.6/4.0.2 og ikke på `3_0_x-fixes`.
   - Foreslått **M9b**: kopi av WSS4J 3.0.5 `SignatureProcessor` med WSS-727 som `As4SignatureProcessor`, registrert via `WSSConfig` på AS4-endepunktet (`PolicyBasedWSS4JInInterceptor` har ingen konstruktør for `wss4j.processor.map`). Forventet −0,75 til −1,5 GB → 2g realistisk. Fjernes når WSS4J med WSS-727 tas i bruk.
   - Tamper-test med 700 MiB: to temp-filer under mottak, **`/data/cxf-tmp` tom etter avvisning** – opprydding i out-fault-kjeden virker.
-  - Gjenstår for M9: Jetty-testene i oxalis-ng (krever ledig port 8080), deretter commit. Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+  - Hele `oxalis-ng-as4`-testsuiten med ledig port 8080: **139 tester, 0 feil, 0 hoppet over** (inkl. `SendReceiveTest`, `AS4StatusServletTest`, MLS-testene og `As4RereadableAttachmentTest`).
+  - **M9 FERDIG.** Neste: M9b (WSS-727 lokalt). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
