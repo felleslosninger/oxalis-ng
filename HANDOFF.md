@@ -10,8 +10,14 @@ Payloadene er en liten XML med ett element som inneholder kryptert binærdata i 
 
 ## Status
 
-- Analyse ferdig (bare hovedkode, ikke test). Ingen kode endret.
-- Neste steg: runde 1 (konfigurasjon, M2–M7), deretter **M8** som første kodetiltak. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+- Analyse ferdig (bare hovedkode, ikke test). Ingen kode endret i oxalis-ng.
+- **Runde 1 ferdig** (2026-09-24), i brukerens serverrepo:
+  - M1/M2/M3/M6: `ENTRYPOINT` med `-XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0 -XX:+UseZGC -Djava.io.tmpdir=/data/tmp -Dorg.apache.cxf.io.CachedOutputStream.OutputDirectory=/data/cxf-tmp -Dorg.apache.cxf.io.CachedOutputStream.MaxSize=2500000000`, pluss midlertidig GC-logg, NMT og heap dump ved OOM.
+  - `/data` eies av app-brukeren i imaget; `main()` oppretter `java.io.tmpdir` og CXF-mappen før Oxalis starter (CXF faller ellers stille tilbake til tmpdir).
+  - M4: `connector.setIdleTimeout(900_000)` i `Main`. Ingress/proxy gjelder først i produksjon.
+  - M5: utsatt (én fil om gangen under testing).
+  - M7: gjennomgått, OK.
+- Neste steg: **baseline-måling** med én melding på 1 GB komprimert (containeren trenger `--memory` ~8 GB før M8), deretter **M8**. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
