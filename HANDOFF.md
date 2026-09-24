@@ -36,7 +36,11 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
 - **M8 aktiv** (2026-09-24): `StreamingGCM inserted at position 1, AES/GCM/NoPadding resolves to provider StreamingGCM`. Årsak til første feil: provider-klassen og `insertProviderAt` manglet i brukerens `Main`. `JCEMapper.setProviderId("BC")` er fjernet (ingen effekt på vedlegg, flyttet bare signatur/digest/RSA-OAEP til BC).
 - M8, test med `--memory=8g`: heap brukt ved `ReceiptPersister` **2 822 MiB** (mot 3 556 i baseline, −734 MiB). Øyeblikksbilde med ZGC-søppel – ikke avgjørende.
   - Høyeste verdi etter GC i `gc.log` (`grep -oE '\)->[0-9]+M' gc.log | sort -t'>' -k2 -n | tail -1`): **2 820 MB** med M8, mot **4 358 MB** i kjøringen før provideren virket (**−1 538 MB**). Med generasjonsbasert ZGC inkluderer verdien gammelt søppel, så den er grov, men sammenlignbar mellom kjøringer med samme oppsett.
-- Neste steg: samme test med `--memory=4g` (~2,8 GB heap). Uten M8 forventes OOM, med M8 skal den gå. Deretter negativ test (endret byte i kryptert vedlegg skal avvises før `CustomPersister`). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+- M8, test med `--memory=4g` (heap-maks 2 868 MiB): **gikk gjennom** – `ReceiptPersister` kalt med **24 MiB ledig**. Én melding på ~1 GB passer nå i halve minnet, men nesten uten margin (WSS4J-bufferen på ~1–1,5 GiB er det som gjenstår → M9).
+- 4g-kjøringen: total tid **47,8 s** (mot 50,9–51,1 s med 8g) – mindre minne gjorde det ikke tregere.
+- 4g-kjøringen: **2 reelle `Allocation Stall`, 63 ms totalt.** (`grep -c "Allocation Stall"` ga 34, men det teller ZGCs oppsummeringslinjer `Allocation Stalls: 0 0 0 0`, ikke faktiske stalls. Faktiske stalls er egne linjer `Allocation Stall (tråd) X ms`.) Konklusjon: 4g fungerer uten merkbar treghet, men med nesten ingen margin (24 MiB ledig). **Anbefalt før M9: 5–6g for én melding på ~1 GB om gangen.** Etter M9 forventes 4g med god margin, trolig også 2g.
+- Gjenstår for M8: (valgfritt) samme 4g-test uten `StreamingGCM` for å bekrefte OOM, og negativ test (endret byte i kryptert vedlegg skal avvises før `CustomPersister`).
+- Deretter: **M9**. Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
