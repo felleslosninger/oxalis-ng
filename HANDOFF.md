@@ -8,6 +8,16 @@ Sende og motta AS4-meldinger på ~1 GB **komprimert** (evt. opp mot 2 GB) uten a
 
 Payloadene er en liten XML med ett element som inneholder kryptert binærdata i base64. gzip gir bare ~75 %, så 1 GB komprimert ≈ 1,33 GB ukomprimert.
 
+Målte størrelsesforhold (tilfeldige binærdata): base64-XML = 1,33 × binær, gzip = 1,01 × binær (0,757 × base64). «1 GB komprimert» ≈ «1 GB binær» i testene.
+
+**Valgt teststørrelse:** `messageSize = 700 * mib` → XML ~978,7 MB (≈ reelle filer på 1 GB), gzip ~741 MB. Under `String`-grensen (så `AdministrativeMessageInMemory` fungerer, men bruker ~4,6 GB i topp under generering – sender trenger `-Xmx6g`), og under WSS4J-terskelen. Forventet mottak: ~3,5–5 GB heap før M8, ~1,5 GB etter M8. Mottaker på `--memory=8g`. Bytt til filbasert generator før sendersiden måles.
+
+**Terskel:** Komprimert størrelse over 1 GiB (1 073 741 824 byte) får WSS4J-bufferen til å doble seg til ~2 GiB (vedvarende 2 GiB, topp ~3 GiB per side). Testen med 1024 MiB binær gir ~1,084 GB komprimert og havner **over** terskelen. For baseline:
+- `messageSize = 1000 * mib` (~1,059 GB komprimert, under terskelen) med mottaker på `--memory=8g`.
+- `messageSize = 1024 * mib` (over terskelen) krever mottaker på `--memory=12g` og sender med `-Xmx6g`.
+
+Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `messages`, `server`). `AdministrativeMessageInMemory` feilet med `OutOfMemoryError: UTF16 String size is 1431658670` (`String.replace` av `{asic}`), og må byttes ut med en generator som strømmer til temp-fil (`AdministrativeMessageOnDisk`, `getSizeInBytes()` → `long`). Sender-klienten trenger `oxalis.http.timeout.read = 900000` i `oxalis.conf`.
+
 ## Status
 
 - Analyse ferdig (bare hovedkode, ikke test). Ingen kode endret i oxalis-ng.
