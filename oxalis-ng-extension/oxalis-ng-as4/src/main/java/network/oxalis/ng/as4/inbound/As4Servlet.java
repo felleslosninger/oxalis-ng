@@ -13,6 +13,9 @@ import org.apache.cxf.transport.servlet.CXFNonSpringServlet;
 import org.apache.cxf.ws.security.wss4j.PolicyBasedWSS4JInInterceptor;
 import org.apache.cxf.ws.security.wss4j.PolicyBasedWSS4JOutInterceptor;
 import org.apache.wss4j.common.crypto.Merlin;
+import org.apache.wss4j.dom.WSConstants;
+import org.apache.wss4j.dom.engine.WSSConfig;
+import org.apache.wss4j.dom.processor.As4SignatureProcessor;
 
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
@@ -49,6 +52,11 @@ public class As4Servlet extends CXFNonSpringServlet {
 
         endpointImpl.getProperties().put(ENCRYPT_CRYPTO, merlin);
         endpointImpl.getProperties().put(ENCRYPT_USERNAME, settings.getString(KeyStoreConf.KEY_ALIAS));
+
+        // Verify signatures without Santuario keeping a copy of each attachment in heap (WSS-727)
+        WSSConfig wssConfig = WSSConfig.getNewInstance();
+        wssConfig.setProcessor(WSConstants.SIGNATURE, As4SignatureProcessor.class);
+        endpointImpl.getProperties().put(WSSConfig.class.getName(), wssConfig);
 
         endpointImpl.getInInterceptors().add(new PolicyBasedWSS4JInInterceptor());
         endpointImpl.getOutInterceptors().add(new PolicyBasedWSS4JOutInterceptor());
