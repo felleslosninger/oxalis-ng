@@ -144,6 +144,30 @@ public class As4RereadableAttachmentTest {
     }
 
     @Test
+    public void resetWorksWithEncryptedTempFile() throws IOException {
+        CachedOutputStream cache = cache();
+        // As with -Dorg.apache.cxf.io.CachedOutputStream.CipherTransformation; CTR streams, GCM would buffer on decrypt
+        cache.setCipherTransformation("AES/CTR/NoPadding");
+        try (As4MarkableCachedInputStream in = new As4MarkableCachedInputStream(new NoMarkInputStream(content), cache)) {
+            in.mark(0);
+            Assert.assertEquals(in.readAllBytes(), content);
+
+            byte[] onDisk;
+            try (Stream<Path> files = Files.list(cacheDir)) {
+                onDisk = Files.readAllBytes(files.findFirst().orElseThrow());
+            }
+            Assert.assertEquals(onDisk.length, content.length);
+            Assert.assertNotEquals(onDisk, content, "the temp file is encrypted");
+
+            in.reset();
+            Assert.assertEquals(in.readAllBytes(), content);
+            in.reset();
+            Assert.assertEquals(in.readAllBytes(), content);
+        }
+        Assert.assertEquals(cachedFileCount(), 0);
+    }
+
+    @Test
     public void closeDeletesTempFileWithoutReset() throws IOException {
         As4MarkableCachedInputStream in = new As4MarkableCachedInputStream(new NoMarkInputStream(content), cache());
         in.readAllBytes();
