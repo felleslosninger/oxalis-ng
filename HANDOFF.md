@@ -72,6 +72,8 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
 | M8 + M9 | 4 GB | 1 796 MiB | – |
 | M8 + M9 + M9b | **2 GB** | **62 MiB** | ~49 s |
 
+**M10 (krypterte temp-filer):** kun JVM-flagg i brukerens server: `-Dorg.apache.cxf.io.CachedOutputStream.CipherTransformation=AES/CTR/NoPadding` (CTR strømmer; GCM ville gitt full bufring ved dekryptering igjen). CXF `CipherPair.getDecryptor()` lager ny `Cipher` per strøm, så M9s «åpne ny før gammel lukkes» er trygt. Test i oxalis-ng: `As4RereadableAttachmentTest.resetWorksWithEncryptedTempFile` (fil på disk ≠ klartekst, gjentatt `reset()` gir riktig innhold). Gjenstår: brukerens 700 MiB-test med flagget.
+
 Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp-filer i `/data/cxf-tmp` (~2 × komprimert størrelse per samtidige melding under mottak). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
