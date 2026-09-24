@@ -11,7 +11,7 @@ Payloadene er en liten XML med ett element som inneholder kryptert binærdata i 
 ## Status
 
 - Analyse ferdig (bare hovedkode, ikke test). Ingen kode endret.
-- Neste steg: runde 1 (konfigurasjon, M2–M7), deretter **M8** som første kodetiltak.
+- Neste steg: runde 1 (konfigurasjon, M2–M7), deretter **M8** som første kodetiltak. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Funn – hvor minnet går
 
@@ -75,22 +75,60 @@ Alternativ til M9: egen JSR-105-provider med en kopi av Attachment-Content-Signa
 
 Disk per samtidige melding: ~2,3 GB i dag, ~3,3 GB etter M9.
 
-## Plan – sendersiden (senere)
+## Plan – sendersiden (etter mottakssiden)
 
-| # | Tiltak | Effekt | Omfang |
-|---|---|---|---|
-| A1 | Øk `oxalis.http.timeout.read` (minutter, evt. regnet ut fra størrelse) | Nødvendig | ½ d |
-| A2 | Lever filene med SBDH ferdig på plass | −3 til −5 GB, slipper B2 | 0 d |
-| B3 | `CompressionUtil` returnerer en filstrøm med ekte `mark`/`reset` (CXF `DelegatingInputStream` sender `markSupported` videre) | −1,07 / −1,6 GB | 1–2 d |
-| B1 | `TransmissionRequestBuilder` / `PeekingInputStream`: les SBDH med `mark(64 KB)`, payload i temp-fil (evt. `payLoad(Path)`) | −1,33 / −2,7 GB | 3–5 d |
-| B2 | (bare hvis ikke A2) Strømmende SBDH-innpakking til fil og egen StAX-kopi med `getTextCharacters()` i biter | −3 til −5 GB | 1–2 d |
-| B6 | Upstream-patch til WSS4J (fil i stedet for `mark(Integer.MAX_VALUE)`) | Varig løsning for B3/M9 | 2–3 d + ventetid |
+Sendersiden bruker i dag ~3 GB heap per melding på 1 GB komprimert når payloaden har SBDH, og 5–8 GB når Oxalis må pakke den inn. GCM-kryptering strømmer, så B8/M8 gir ingen gevinst her.
 
-Anbefales ikke: bytte AS4-stakk (phase4 m.fl. bruker også WSS4J med DOM).
+### Runde 3 – konfigurasjon og drift (1–2 d)
+
+| # | Tiltak | Effekt | Omfang | Løsbarhet |
+|---|---|---|---|---|
+| A1 | Øk `oxalis.http.timeout.read` fra 45 s til 10–15 min, evt. regnet ut fra størrelse. Kan tas allerede i runde 1 hvis dere tester mot egen mottaker | Nødvendig, ellers feiler 1 GB | ½ d | 5 |
+| A2 | Lever filene med SBDH ferdig på plass (hopper over innpakking og `getText()`) | −3 til −5 GB, slipper B2 | 0 d | 5 |
+| A4s | `java.io.tmpdir` på ekte disk (gzip-temp-filen er ~1 GB) | Hindrer at temp-filen havner i RAM | ½ d | 5 |
+| A5s | Begrens samtidige store sendinger (trådbasseng/kø) – midlertidig | Forutsigbar heap | ½ d | 5 |
+| A7 | Bekreft `oxalis.transformer.detector=noop` | Unngår DOM på 5–10× | 0 d | 5 |
+
+### Runde 4 – kode (5–9 d + 2–3 d test)
+
+| # | Tiltak | Effekt | Omfang | Løsbarhet |
+|---|---|---|---|---|
+| B3 | `CompressionUtil` returnerer en filstrøm med ekte `mark`/`reset` (CXF `DelegatingInputStream` sender `markSupported` videre), så WSS4J ikke bufrer i heap. Utgår hvis JSR-105-alternativet ble valgt i stedet for M9 | −1,07 GB vedvarende / −1,6 GB topp, fjerner grensen på 2³¹ | 1–2 d | 4 |
+| B1 | `TransmissionRequestBuilder` / `PeekingInputStream` (`TransmissionRequestFactory`): les SBDH med `mark(64 KB)`, payload i temp-fil (evt. ny `payLoad(Path)`), `getPayload()` gir filstrøm som sletter filen ved `close()` | −1,33 GB vedvarende / −2,7 GB topp, fjerner grensen på 2³¹ ukomprimert | 3–5 d | 5 |
+| B2 | (bare hvis ikke A2) Strømmende SBDH-innpakking (`SbdhWrapper`, `XmlContentWrapper`) til temp-fil, og egen StAX-kopi med `getTextCharacters()` i biter i stedet for vefa `XMLStreamUtils.copy` | −3 til −5 GB, nødvendig over 2³¹ tegn | 1–2 d | 5 |
+| A5s | Løs opp samtidighetsbegrensningen | Kapasitet | ½ d | 5 |
+
+### Forventet heap per sending (1 GB komprimert)
+
+| Etter | Med SBDH i payload | Uten SBDH |
+|---|---|---|
+| I dag | ~3 GB | ~5–8 GB |
+| Runde 3 | ~3 GB | ~3 GB (A2) |
+| B3 | ~1,6 GB | – |
+| B3 + B1 | noen titalls MB | – |
+
+Disk per sending: ~1,33 GB kildefil + ~1 GB gzip-temp-fil (+1,33 GB etter B1 hvis payloaden kopieres til temp-fil i stedet for å leses fra `Path`).
+
+## Parallelt / valgfritt
+
+| # | Tiltak | Merknad |
+|---|---|---|
+| B6 | Upstream-patch til WSS4J (fil i stedet for `mark(Integer.MAX_VALUE)`) | Kan på sikt erstatte B3 og M9. 2–3 d + ventetid |
+| B7 | Bytte AS4-stakk | Anbefales ikke – phase4 m.fl. bruker også WSS4J med DOM |
+
+## Samlet omfang
+
+| Runde | Side | Omfang |
+|---|---|---|
+| 1 | Mottak – konfigurasjon (M2–M7) | 2–3 d |
+| 2 | Mottak – kode (M8–M11) + test | 5–10 d |
+| 3 | Sending – konfigurasjon (A1, A2, A4s, A5s, A7) | 1–2 d |
+| 4 | Sending – kode (B3, B1, evt. B2) + test | 7–12 d |
+| **Sum** | | **~15–27 d** |
 
 ## Beslutninger
 
-- Mottakssiden optimaliseres først.
+- Mottakssiden optimaliseres først (runde 1–2), deretter sendersiden (runde 3–4).
 - B4 (M9) har ingen effekt uten B8 (M8) – de hører sammen.
 - `Dockerfile` i repoet brukes ikke og skal ignoreres.
 
