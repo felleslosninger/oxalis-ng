@@ -110,7 +110,8 @@ public class As4LazyAttachmentCollection implements Collection<Attachment> {
     }
 
     public boolean add(Attachment arg0) {
-        return attachments.add(arg0);
+        // WSS4J adds decrypted/verified attachments here through CXF's AttachmentCallbackHandler
+        return attachments.add(deserializer.makeRereadable(arg0));
     }
 
     public boolean addAll(Collection<? extends Attachment> arg0) {

@@ -14,6 +14,7 @@ import org.apache.cxf.interceptor.StaxInInterceptor;
 import org.apache.cxf.jaxws.EndpointImpl;
 import org.apache.cxf.jaxws.handler.soap.SOAPHandlerFaultInInterceptor;
 import org.apache.cxf.message.Message;
+import org.apache.cxf.phase.Phase;
 import org.apache.cxf.transport.MultipleEndpointObserver;
 import org.apache.cxf.ws.policy.WSPolicyFeature;
 import org.apache.cxf.wsdl.interceptors.AbstractEndpointSelectionInterceptor;
@@ -62,6 +63,8 @@ public class As4EndpointsPublisherImpl implements As4EndpointsPublisher {
         endpoint.getOutInterceptors().add(setPolicyOutInterceptor);
         endpoint.getInFaultInterceptors().add(setPolicyInInterceptor);
         endpoint.getOutFaultInterceptors().add(setPolicyOutInterceptor);
+        // Rejected requests never reach POST_INVOKE; remove their cached (possibly decrypted) attachments too
+        endpoint.getOutFaultInterceptors().add(new AttachmentCleanupInterceptor(Phase.SETUP));
 
         MultipleEndpointObserver newMO = new MultipleEndpointObserver(bus) {
             @Override

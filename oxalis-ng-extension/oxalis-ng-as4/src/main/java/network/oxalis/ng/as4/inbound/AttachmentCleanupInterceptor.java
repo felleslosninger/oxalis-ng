@@ -15,7 +15,15 @@ import jakarta.activation.DataSource;
 public class AttachmentCleanupInterceptor extends AbstractPhaseInterceptor<Message> {
 
     public AttachmentCleanupInterceptor() {
-        super(Phase.POST_INVOKE);
+        this(Phase.POST_INVOKE);
+    }
+
+    /**
+     * @param phase phase to run in, e.g. an out-fault phase so cached attachments are also removed when the
+     *              request is rejected
+     */
+    public AttachmentCleanupInterceptor(String phase) {
+        super(phase);
     }
 
     public void handleMessage(Message message) throws Fault {
@@ -23,9 +31,15 @@ public class AttachmentCleanupInterceptor extends AbstractPhaseInterceptor<Messa
         cleanRequestAttachment(exchange);
     }
 
+    @SneakyThrows
     private void cleanRequestAttachment(Exchange exchange) {
-        As4AttachmentDeserializer ad = exchange.getInMessage().get(As4AttachmentDeserializer.class);
+        Message inMessage = exchange.getInMessage();
+        As4AttachmentDeserializer ad = inMessage == null ? null : inMessage.get(As4AttachmentDeserializer.class);
+        if (ad == null) {
+            return;
+        }
         ad.getRemoved().forEach(this::close);
+        ad.closeRereadable();
     }
 
     @SneakyThrows

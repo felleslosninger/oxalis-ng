@@ -11,6 +11,7 @@ import org.apache.cxf.message.Attachment;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
 
+import jakarta.activation.DataHandler;
 import jakarta.activation.DataSource;
 import java.io.IOException;
 import java.io.InputStream;
@@ -66,6 +67,8 @@ public class As4AttachmentDeserializer {
 
     @Getter
     private List<Attachment> removed = new ArrayList<>();
+
+    private final List<As4RereadableDataSource> rereadable = new ArrayList<>();
 
     public As4AttachmentDeserializer(Message message) {
         this(message, Collections.singletonList("multipart/related"));
@@ -429,5 +432,49 @@ public class As4AttachmentDeserializer {
 
     public void addRemoved(Attachment remove) {
         this.removed.add(remove);
+    }
+
+    /**
+     * Makes a streamed attachment added to the collection re-readable without buffering it in heap. WSS4J adds the
+     * decrypted attachment this way and then reads it twice (digest, then payload), marking the stream with
+     * Integer.MAX_VALUE; a stream without mark support would be wrapped in a BufferedInputStream holding it all.
+     * Attachments read from the MIME stream are already cached and are left as they are.
+     */
+    public Attachment makeRereadable(Attachment attachment) {
+        if (!(attachment instanceof AttachmentImpl)) {
+            return attachment;
+        }
+        DataSource source = attachment.getDataHandler().getDataSource();
+        if (!(source instanceof AttachmentDataSource)
+                || source instanceof As4AttachmentDataSource
+                || ((AttachmentDataSource) source).isCached()) {
+            return attachment;
+        }
+        As4RereadableDataSource rereadableSource = new As4RereadableDataSource(source, message);
+        rereadable.add(rereadableSource);
+        ((AttachmentImpl) attachment).setDataHandler(new DataHandler(rereadableSource));
+        return attachment;
+    }
+
+    /**
+     * Deletes the cached copies made by {@link #makeRereadable(Attachment)}.
+     */
+    public void closeRereadable() throws IOException {
+        IOException failure = null;
+        for (As4RereadableDataSource source : rereadable) {
+            try {
+                source.close();
+            } catch (IOException e) {
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        rereadable.clear();
+        if (failure != null) {
+            throw failure;
+        }
     }
 }
