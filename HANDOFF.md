@@ -16,7 +16,7 @@ Målte størrelsesforhold (tilfeldige binærdata): base64-XML = 1,33 × binær, 
 - `messageSize = 1000 * mib` (~1,059 GB komprimert, under terskelen) med mottaker på `--memory=8g`.
 - `messageSize = 1024 * mib` (over terskelen) krever mottaker på `--memory=12g` og sender med `-Xmx6g`.
 
-Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `messages`, `server`). `AdministrativeMessageInMemory` feilet med `OutOfMemoryError: UTF16 String size is 1431658670` (`String.replace` av `{asic}`), og må byttes ut med en generator som strømmer til temp-fil (`AdministrativeMessageOnDisk`, `getSizeInBytes()` → `long`). Sender-klienten trenger `oxalis.http.timeout.read = 900000` i `oxalis.conf`.
+Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `messages`). **Brukerens faktiske Jetty-server ligger i et annet repo som ikke er synlig herfra** – `efm-peppol-accesspoint-testing/server` er IKKE den som kjører. Be om kode/logg i stedet for å lese derfra. `AdministrativeMessageInMemory` feilet med `OutOfMemoryError: UTF16 String size is 1431658670` (`String.replace` av `{asic}`), og må byttes ut med en generator som strømmer til temp-fil (`AdministrativeMessageOnDisk`, `getSizeInBytes()` → `long`). Sender-klienten trenger `oxalis.http.timeout.read = 900000` i `oxalis.conf`.
 
 ## Status
 
@@ -27,12 +27,20 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
   - M4: `connector.setIdleTimeout(900_000)` i `Main`. Ingress/proxy gjelder først i produksjon.
   - M5: utsatt (én fil om gangen under testing).
   - M7: gjennomgått, OK.
-- Neste steg: **baseline-måling** med én melding på 1 GB komprimert (containeren trenger `--memory` ~8 GB før M8), deretter **M8**. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
+- **Baseline målt** (2026-09-24, før M8): 700 MiB binær (XML ~978,7 MB, gzip ~741 MB), mottaker `--memory=8g` (heap-maks 5 736 MiB, ZGC).
+  - Total tid sett fra klienten: **51,1 s** (send → kvittering).
+  - Heap brukt da `ReceiptPersister` ble kalt: **3 556 MiB** (5 736 total − 2 180 ledig). Øyeblikksbilde inkl. søppel, ikke topp. Samme logglinje brukes som sammenligning etter M8.
+  - Topp fra `gc.log` ikke hentet ennå.
+- M8, første forsøk (`JCEMapper.setProviderId("BC")`): uendret, 3 556 MiB brukt. Forklart: WSS4J ignorerer `JCEMapper` for vedleggsdekryptering.
+- M8 med `StreamingGcmProvider`, første kjøring: startloggen viste `AES/GCM/NoPadding resolves to provider SunJCE` – provideren er ikke i bruk ennå. Feilsøkes med logging av provider-rekkefølge, `getService(...)` og eksplisitt `Cipher.getInstance("AES/GCM/NoPadding", "StreamingGCM")`.
+- **M8 aktiv** (2026-09-24): `StreamingGCM inserted at position 1, AES/GCM/NoPadding resolves to provider StreamingGCM`. Årsak til første feil: provider-klassen og `insertProviderAt` manglet i brukerens `Main`. `JCEMapper.setProviderId("BC")` er fjernet (ingen effekt på vedlegg, flyttet bare signatur/digest/RSA-OAEP til BC).
+- M8, test med `--memory=8g`: heap brukt ved `ReceiptPersister` **2 822 MiB** (mot 3 556 i baseline, −734 MiB). Øyeblikksbilde med ZGC-søppel – ikke avgjørende.
+- Neste steg: samme test med `--memory=4g` (~2,8 GB heap). Uten M8 forventes OOM, med M8 skal den gå. Deretter negativ test (endret byte i kryptert vedlegg skal avvises før `CustomPersister`). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
 - Egen Jetty 11-`Main` (`no.digdir.efm.oxalis.server.Main`): `QueuedThreadPool` max 500 tråder, `ServerConnector` på 8080 uten satt `idleTimeout` (Jetty-standard 30 s), `GuiceFilter` + `OxalisGuiceContextListener`.
-- Registrerer BouncyCastle **sist** med vilje: BC på plass 1 ødela innlasting av PKCS12/JKS-keystore (`BadPaddingException`). Derfor må M8 gjøres med `JCEMapper.setProviderId("BC")` (bare Santuario/WSS4J), ikke ved å endre rekkefølgen på providere. M8 kan legges i deres `registerBouncyCastleProvider()` – ingen Oxalis-endring nødvendig.
+- Registrerer BouncyCastle **sist** med vilje: BC på plass 1 ødela innlasting av PKCS12/JKS-keystore (`BadPaddingException`). Derfor gjøres M8 med en egen smal provider (`StreamingGcmProvider`, kun AES/GCM → BC) på plass 1, lagt i deres `registerBouncyCastleProvider()` – ingen Oxalis-endring nødvendig. Første forsøk med `JCEMapper.setProviderId("BC")` ga identisk resultat som baseline (3 556 MiB brukt) og må fjernes.
 - M4: sett `connector.setIdleTimeout(900_000)` i deres `Main`.
 - M5: **utsatt** – under testing sendes bare én fil om gangen. Må på plass før produksjon hvis M8/M9 ikke er ferdige da. Semafor-filter før `GuiceFilter`. Oxalis-sendere bruker chunked overføring (ingen `Content-Length`), så filteret må telle bytes og ta en plass i semaforen når terskelen passeres, ikke bare se på headeren.
 - Egen `PersisterHandler` (`CustomPersister`) – **M7 gjennomgått, OK.** Sender strømmen til `StandardBusinessDocumentStreamParser` (`~/src/efm-peppol-accesspoint-testing/messages/.../parsers`), som bruker Woodstox 7.1.0 med `IS_COALESCING=false` og `readElementAsBinary()` i biter på 64 KB (`BinaryElementInputStream`). Testet med 256 MB heap: 1,4 mrd. base64-tegn → 37 MB heap, 2,8 mrd. (over 2³¹) → 37 MB heap. Woodstox-grensene er som standard `Integer.MAX_VALUE` for tekstlengde og `Long.MAX_VALUE` for dokumentet.
@@ -85,7 +93,7 @@ Effekt ved 1 GB komprimert. Løsbarhet 1–5 (5 = enkelt).
 
 | # | Tiltak | Effekt | Omfang | Løsbarhet |
 |---|---|---|---|---|
-| M8 (B8) | `org.apache.xml.security.algorithms.JCEMapper.setProviderId("BC")` ved oppstart (f.eks. i `As4CommonModule`). Test med endret GCM-tag: må avvises **før** noe persisteres (BC slipper ut klartekst før taggen er verifisert; signaturverifiseringen leser hele strømmen før `As4InboundHandler`) | −3 til −4 GB, fjerner grensen på 2³¹ ved dekryptering | 1–2 d | 4 |
+| M8 (B8) | Registrer en smal JCA-provider **først** (`Security.insertProviderAt(..., 1)`) som bare tilbyr `Cipher.AES/GCM/NoPadding` → `org.bouncycastle.jcajce.provider.symmetric.AES$GCM`. **`JCEMapper.setProviderId("BC")` virker IKKE**: WSS4J `EncryptionUtils` (~linje 320) dekrypterer vedlegg med `Cipher.getInstance(jceAlgorithm)` uten provider (bare RSA-OAEP-nøkkelen går via `KeyUtils`/`JCEMapper`). Verifisert i test: WSS4J-kallet får BC og strømmer (512 MB heap for 300 MB); AES-CBC, PBE og PKCS12 blir på SunJCE/SUN; endret tag gir `AEADBadTagException` ved slutten av strømmen. BC er like rask som SunJCE (132 vs 121 MB/s for 741 MB). Test med endret GCM-tag: må avvises **før** noe persisteres | −2 til −4 GB, fjerner grensen på 2³¹ ved dekryptering | 1–2 d | 4 |
 | M9 (B4) | I `As4LazyAttachmentCollection.add()`: skriv dekryptert strøm til temp-fil og bytt til en `InputStream` med ekte `mark`/`reset` (`FileChannel`-posisjon). CXF `AttachmentCallbackHandler` legger resultatet fra dekrypteringen inn via `message.getAttachments().add(...)`, og det er vår samling. **Krever M8.** Verifiser rekkefølgen dekryptering → signatur i WSS4J | −1,07 GB vedvarende / −1,6 GB topp; +1 GB disk | 2–5 d | 3–4 |
 | M10 (B5) | Krypter CXF-tempfiler (`bus.io.CachedOutputStream.CipherTransformation`) | Sikkerhet | ½ d | 5 |
 | M11 | Løs opp M5/M6 | Kapasitet | ½ d | 5 |
