@@ -170,7 +170,7 @@ Disk per samtidige melding: ~2,3 GB i dag, ~3,3 GB etter M9.
 | B3 | 2 861 MiB |
 | B3 + B1 | **126 MiB** |
 
-Gjenstår på sendersiden (ikke nødvendig for brukerens klient, som leverer SBDH og bruker `TransmissionRequestBuilder`): `PeekingInputStream`/`TransmissionRequestFactory` leser fortsatt hele payloaden i minnet.
+**B1b implementert** (ikke committet): den andre veien inn i klientbiblioteket. `TransmissionRequestFactory` bruker CXF `CachedOutputStream` (med `holdTempFile()` mens den leses flere ganger) i stedet for `PeekingInputStream`; `XmlContentWrapper` pakker inn til CXF-cache i stedet for `ByteArrayOutputStream` (temp-filen slettes når strømmen lukkes). `PeekingInputStream` (offentlig i `oxalis-ng-commons`, som ikke har CXF, og `getContent()` gir `byte[]`) er ikke lenger i bruk og er markert `@Deprecated`. Tester: `TransmissionRequestFactoryTest.largePayloadWithSbdhIsPassedOnUnchanged`, `XmlContentWrapperTest.largeContentIsWrapped`. `oxalis-ng-commons` 81/81, `oxalis-ng-outbound` 39/39; standalone og testbed kompilerer.
 
 **B2 trengs ikke** (målt 2026-09-25): både Woodstox 7.1 og JDK-ens StAX deler store tekstnoder i biter når de ikke slår sammen tekst (standard, og det vefa `XMLStreamUtils.copy` bruker): 200 mill. tegn i ett element → lengste `getText()` 4 000 (Woodstox) / 16 384 (JDK) tegn. `SbdhWrapper.wrap` inn i CXF-cache (B1) pakket inn 200 MB uten SBDH med `-Xmx256m` på 0,6 s. Forbehold: `javax.xml.stream.isCoalescing=true` ville gitt problemet tilbake. `detector=legacy` (`NoSbdhParser`, DOM) er en separat minnefelle.
 
