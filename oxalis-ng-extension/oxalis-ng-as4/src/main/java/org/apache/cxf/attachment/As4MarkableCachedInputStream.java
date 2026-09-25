@@ -33,6 +33,16 @@ public class As4MarkableCachedInputStream extends InputStream {
         this.cache = cache;
     }
 
+    /**
+     * Replays a cache that has already been written, e.g. the compressed payload on the sending side.
+     */
+    public As4MarkableCachedInputStream(CachedOutputStream completeCache) throws IOException {
+        this.source = null;
+        this.cache = completeCache;
+        completeCache.lockOutputStream();
+        this.replay = completeCache.getInputStream();
+    }
+
     @Override
     public int read() throws IOException {
         ensureOpen();
@@ -122,7 +132,9 @@ public class As4MarkableCachedInputStream extends InputStream {
         }
         closed = true;
         try {
-            source.close();
+            if (source != null) {
+                source.close();
+            }
         } finally {
             try {
                 if (replay != null) {

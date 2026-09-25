@@ -168,6 +168,23 @@ public class As4RereadableAttachmentTest {
     }
 
     @Test
+    public void replaysCompleteCacheAndDeletesItOnClose() throws IOException {
+        CachedOutputStream cache = cache();
+        cache.write(content);
+        As4MarkableCachedInputStream in = new As4MarkableCachedInputStream(cache);
+        Assert.assertTrue(in.markSupported());
+
+        in.mark(Integer.MAX_VALUE);
+        Assert.assertEquals(in.readAllBytes(), content);
+        in.reset();
+        Assert.assertEquals(in.readAllBytes(), content);
+        Assert.assertEquals(cachedFileCount(), 1);
+
+        in.close();
+        Assert.assertEquals(cachedFileCount(), 0);
+    }
+
+    @Test
     public void closeDeletesTempFileWithoutReset() throws IOException {
         As4MarkableCachedInputStream in = new As4MarkableCachedInputStream(new NoMarkInputStream(content), cache());
         in.readAllBytes();

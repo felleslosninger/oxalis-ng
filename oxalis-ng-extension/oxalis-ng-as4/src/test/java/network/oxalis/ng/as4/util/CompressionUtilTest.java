@@ -22,6 +22,24 @@ public class CompressionUtilTest {
     }
 
     @Test
+    public void compressedStreamCanBeReadAgainAfterReset() throws Exception {
+        byte[] before = new byte[1024 * 1024];
+        new Random().nextBytes(before);
+        try (InputStream compressedStream = new CompressionUtil().getCompressedStream(new ByteArrayInputStream(before))) {
+            // WSS4J only wraps streams without mark support in a BufferedInputStream (holding it all in heap)
+            Assert.assertTrue(compressedStream.markSupported());
+
+            compressedStream.mark(Integer.MAX_VALUE);
+            byte[] first = IOUtils.toByteArray(compressedStream);
+            compressedStream.reset();
+            byte[] second = IOUtils.toByteArray(compressedStream);
+
+            Assert.assertEquals(second, first);
+            Assert.assertEquals(IOUtils.toByteArray(new GZIPInputStream(new ByteArrayInputStream(second))), before);
+        }
+    }
+
+    @Test
     public void cachedInTempFile() throws Exception {
         byte[] before = new byte[1024 * 1024];
         new Random().nextBytes(before);
