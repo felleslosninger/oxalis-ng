@@ -27,7 +27,8 @@ mvn clean package
 mvn -pl oxalis-ng-extension/oxalis-ng-as4 -am test
 ```
 
-- Kildekode kompileres for Java 11 (`java.version` i `pom.xml`), men brukeren **kjører på Java 25**.
+- Kildekode kompileres for Java 11 (`java.version` i `pom.xml`), men brukeren **kjører på Java 25**. Prosjektet bygger og testes på JDK 17, 21 og 25 (CI bruker JDK 11).
+- Annotasjonsprosessorer (Lombok, metainf-services) er listet i `annotationProcessorPaths` i `maven-compiler-plugin`: fra JDK 23 kjører `javac` bare prosessorer som er listet eksplisitt. En ny prosessor må legges til der, ellers blir den stille ignorert.
 - Offline-bygg (`mvn -o`) feiler fordi `opentelemetry-bom` ikke ligger i lokal `~/.m2`.
 - Nøkkelversjoner (`pom.xml`): CXF 4.0.11, WSS4J 3.0.5, vefa-peppol 4.6.0, peppol-sbdh 2.5.0. Kildejarer for CXF/WSS4J finnes i `~/.m2` og kan pakkes ut for å lese tredjepartskode.
 

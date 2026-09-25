@@ -45,7 +45,7 @@ Brukerens Jetty-server (`server/`), testklient (`client/`) og meldingsgenerator 
 - **Negativ test bestått** (2026-09-24): endret byte i kryptert vedlegg → mottaker: `SoapFault` fra `WSS4JInInterceptor`, årsak `TransformException` → `AEADBadTagException: mac check in GCM failed` (BC). Stoppet i sikkerhetssteget, før `As4Provider`/`As4InboundHandler`/`CustomPersister`. Avsenderen logger `Inbound policy verification failed ... Soap Body is not SIGNED` for feilsvaret; det er vanlig Oxalis-oppførsel for sikkerhetsfeil (feil-svar signeres ikke), ikke knyttet til M8.
 - **M8 FERDIG.** Oppsummert: 1 GB-melding går med `--memory=4g` (før: 8g), ~−1,5 GB i `gc.log`, ~48 s (før ~51 s), manipulert chiffertekst avvises før persistering.
 - **M9 implementert** i oxalis-ng (`oxalis-ng-as4`, commit `eb89f28c`): `As4MarkableCachedInputStream` (kopierer til CXF `CachedOutputStream` under lesing, `mark`/`reset` spiller av fra cache), `As4RereadableDataSource`, `As4AttachmentDeserializer.makeRereadable()/closeRereadable()`, kall fra `As4LazyAttachmentCollection.add()`, opprydding også i out-fault-kjeden (`AttachmentCleanupInterceptor(Phase.SETUP)` i `As4EndpointsPublisherImpl`). Tester: `As4RereadableAttachmentTest` (7, inkl. WSS4Js ekte `AttachmentContentSignatureTransform`).
-  - Bygg: oxalis-ng må bygges med JDK 21 (`JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem`) – Lombok 1.18.38 støtter ikke JDK 25.
+  - Bygg: oxalis-ng måtte da bygges med JDK 21. Løst senere (commit `05d88c45` + Mockito 5.24.0): bygger og tester nå også på JDK 25.
   - Modultester: 150 OK; de 6 Jetty-testene (`SendReceiveTest`, `AS4StatusServletTest`, 4 MLS-tester) kunne ikke starte fordi port 8080 var opptatt av brukerens container. **Må kjøres på nytt med ledig port.**
   - Brukerens server, 700 MiB, `--memory=4g`: **1 072 MiB ledig** ved `ReceiptPersister` (mot 24 MiB med bare M8, +1 048 MiB ≈ WSS4J-bufferen på 1 GiB).
   - `/data/cxf-tmp`: under mottak to filer (rå kryptert ~741 MB + M9s dekrypterte kopi), **tom etter vellykket mottak**.
@@ -99,7 +99,6 @@ Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp
 | Flere store meldinger samtidig | Heap er ikke lenger problemet, men disk (~2,2 × komprimert størrelse per melding under mottak) og CPU | M5 (samtidighetsgrense) er utsatt |
 | Timeouts hos andre | Andre aksesspunkter, proxyer og lastbalanserere har egne grenser | Må avklares med partnere |
 | `PeekingInputStream` | Leser alt til `byte[]` | `@Deprecated`, ikke lenger brukt av Oxalis |
-| Bygg av oxalis-ng | Lombok 1.18.38 støtter ikke JDK 25 | Bygg med JDK 21 til Lombok er oppgradert |
 | `MessagingProviderTest_*` | Feiler bare når de kjøres filtrert (`-Dtest=...`), også før disse endringene | OpenTelemetry-mock, ikke relatert |
 
 ### Midlertidig – kan fjernes senere
