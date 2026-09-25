@@ -78,6 +78,43 @@ Brukerens Jetty-server (`server/`), testklient (`client/`) og meldingsgenerator 
 
 Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp-filer i `/data/cxf-tmp` (~2 × komprimert størrelse per samtidige melding under mottak). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
+## Hva virker, begrensninger og midlertidige løsninger
+
+### Virker for store meldinger (testet med 700 MiB binær → XML ~979 MB, gzip ~741 MB)
+
+- **Mottak** med M8 (`StreamingGcmProvider` i serveren) + M9 + M9b + M10: 2 GB container, 62 MiB heap ved `ReceiptPersister`, temp-filer kryptert og slettet etter både vellykket og avvist melding.
+- **Sending** via `TransmissionRequestBuilder` (B1) og `TransmissionRequestFactory` (B1b), med B3: ~126 MiB heap-topp.
+- **Innkapsling i SBDH** av payload uten SBDH (`SbdhWrapper`, `XmlContentWrapper`) strømmer til temp-fil; store tekstnoder deles opp av StAX (B2 ikke nødvendig).
+- Ingen grense på 2³¹ byte igjen i mottak eller sending.
+
+### Virker ikke / begrensninger
+
+| Hva | Konsekvens | Merknad |
+|---|---|---|
+| `oxalis.transformer.detector=legacy` | `NoSbdhParser` leser hele dokumentet som DOM (5–10× størrelsen i heap) | Bruk `noop` (standard) og lever payload med SBDH |
+| Payload uten SBDH med `detector=noop` | Avvises (`Content does not contain SBDH`), med mindre headeren er komplett inkl. `creationDateAndTime`, som `TransmissionRequestBuilder` ikke kan sette | Uendret oppførsel, ikke en regresjon |
+| Oxalis uten `StreamingGcmProvider` | SunJCE bufrer hele chifferteksten ved dekryptering (3–5×), hard grense 2³¹ byte | M8 finnes bare i brukerens server. Linjen `jdk.security.provider.preferred` i `As4CommonModule` har ingen effekt (JDK leser den bare ved oppstart) |
+| Signert, men ukryptert vedlegg inn | M9-kroken gjelder vedlegg WSS4J legger til etter dekryptering; et rått signert vedlegg kan fortsatt bli bufret av WSS4J `BufferedInputStream` | Teoretisk: Peppol AS4 krypterer alltid |
+| `javax.xml.stream.isCoalescing=true` | `getText()` gir én `String` for hele tekstnoden ved innkapsling | Ikke standard; vefa bruker standard |
+| Flere store meldinger samtidig | Heap er ikke lenger problemet, men disk (~2,2 × komprimert størrelse per melding under mottak) og CPU | M5 (samtidighetsgrense) er utsatt |
+| Timeouts hos andre | Andre aksesspunkter, proxyer og lastbalanserere har egne grenser | Må avklares med partnere |
+| `PeekingInputStream` | Leser alt til `byte[]` | `@Deprecated`, ikke lenger brukt av Oxalis |
+| Bygg av oxalis-ng | Lombok 1.18.38 støtter ikke JDK 25 | Bygg med JDK 21 til Lombok er oppgradert |
+| `MessagingProviderTest_*` | Feiler bare når de kjøres filtrert (`-Dtest=...`), også før disse endringene | OpenTelemetry-mock, ikke relatert |
+
+### Midlertidig – kan fjernes senere
+
+| Hva | Hvor | Fjernes når |
+|---|---|---|
+| **`As4SignatureProcessor`** (M9b, backport av WSS-727) + registreringen i `As4Servlet` + `As4SignatureProcessorTest` | oxalis-ng, `org.apache.wss4j.dom.processor` | Oxalis bruker en WSS4J-release med WSS-727. Per 2026-09-25 finnes ingen: siste på Maven Central er WSS4J 4.0.1, som også er det CXF 4.1.8 bruker. **Viktig:** klassen er en kopi av WSS4J **3.0.5**. Oppgraderes WSS4J/CXF (f.eks. til CXF 4.1 / WSS4J 4.0.x) før WSS-727 er ute, må kopien lages på nytt fra den nye versjonens `SignatureProcessor` – ellers nedgraderes signaturverifiseringen og mister nyere sikkerhetsrettinger (f.eks. replay-cache-fiksen #699) |
+| `StreamingGcmProvider` i brukerens `Main` | Brukerens server | Når tilsvarende er bygget inn i oxalis-ng (erstatter linjen i `As4CommonModule`). SunJCE-oppførselen er bevisst i JDK og forsvinner ikke ved oppgradering |
+| `verifyCryptoSetup()`s GCM-sjekk | Brukerens server | Bør beholdes; flyttes inn i oxalis-ng sammen med `StreamingGcmProvider` |
+| M9/B3 (`As4MarkableCachedInputStream`, `As4RereadableDataSource`, `CompressionUtil`) | oxalis-ng | Ikke knyttet til en oppgradering: WSS4J `AttachmentContentSignatureTransform` bruker fortsatt `mark(Integer.MAX_VALUE)` på `master`. Kan fjernes bare hvis WSS4J endrer det (kandidat for upstream-patch, B6) |
+| `-XX:NativeMemoryTracking=summary`, `-XX:+HeapDumpOnOutOfMemoryError` | `DockerfileLocal` | Etter testing (NMT koster litt; heap dump trenger diskplass) |
+| `-XX:+UseZGC` | `DockerfileLocal` | Valgfritt: heap-bruken er lav, så standard G1 holder |
+| `TamperAttachmentInterceptor` | Testklienten | Aldri i produksjon; aktiveres bare med `-Dtamper.offset` |
+| `AdministrativeMessageInMemory` | Testklienten | Kan slettes; `AdministrativeMessageOnDisk` erstatter den |
+
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
 
 - Egen Jetty 11-`Main` (`no.digdir.efm.oxalis.server.Main`): `QueuedThreadPool` max 500 tråder, `ServerConnector` på 8080 uten satt `idleTimeout` (Jetty-standard 30 s), `GuiceFilter` + `OxalisGuiceContextListener`.
