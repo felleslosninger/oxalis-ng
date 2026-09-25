@@ -151,6 +151,12 @@ Alternativ til M9: egen JSR-105-provider med en kopi av Attachment-Content-Signa
 
 Disk per samtidige melding: ~2,3 GB i dag, ~3,3 GB etter M9.
 
+## Status – sendersiden (startet 2026-09-25)
+
+- Klienten (`efm-peppol-accesspoint-testing/client`) bruker `OxalisOutboundComponent` + `TransmissionRequestBuilder.payLoad(InputStream)` med `setTransmissionBuilderOverride(true)` og `overrideAs4Endpoint(...)`, og har `TamperAttachmentInterceptor` (registrert etter `new OxalisOutboundComponent()`, endrer vedlegget etter WSS4J i `USER_STREAM`). A1, A2 og A7 er allerede oppfylt.
+- **B3 implementert** (ikke committet): `CompressionUtil` låser CXF-cachen i stedet for å lukke den og returnerer `As4MarkableCachedInputStream(CachedOutputStream)` (ny konstruktør som spiller av en ferdig cache). WSS4J-signering bruker da `mark`/`reset` på den i stedet for `BufferedInputStream`. Lukking sletter cachen (`As4MessageSender` lukker i `finally`). Fikser også at en M10-kryptert cache ikke kunne leses på nytt etter `close()` (nøkkelen ødelegges). Tester: `CompressionUtilTest.compressedStreamCanBeReadAgainAfterReset`, `As4RereadableAttachmentTest.replaysCompleteCacheAndDeletesItOnClose`. Gjenstår: hele modultesten (port 8080).
+- Neste: generator på disk i testklienten (for å kunne måle), så B1.
+
 ## Plan – sendersiden (etter mottakssiden)
 
 Sendersiden bruker i dag ~3 GB heap per melding på 1 GB komprimert når payloaden har SBDH, og 5–8 GB når Oxalis må pakke den inn. GCM-kryptering strømmer, så B8/M8 gir ingen gevinst her.
