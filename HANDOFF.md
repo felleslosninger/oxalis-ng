@@ -155,7 +155,9 @@ Disk per samtidige melding: ~2,3 GB i dag, ~3,3 GB etter M9.
 
 - Klienten (`efm-peppol-accesspoint-testing/client`) bruker `OxalisOutboundComponent` + `TransmissionRequestBuilder.payLoad(InputStream)` med `setTransmissionBuilderOverride(true)` og `overrideAs4Endpoint(...)`, og har `TamperAttachmentInterceptor` (registrert etter `new OxalisOutboundComponent()`, endrer vedlegget etter WSS4J i `USER_STREAM`). A1, A2 og A7 er allerede oppfylt.
 - **B3 implementert** (ikke committet): `CompressionUtil` låser CXF-cachen i stedet for å lukke den og returnerer `As4MarkableCachedInputStream(CachedOutputStream)` (ny konstruktør som spiller av en ferdig cache). WSS4J-signering bruker da `mark`/`reset` på den i stedet for `BufferedInputStream`. Lukking sletter cachen (`As4MessageSender` lukker i `finally`). Fikser også at en M10-kryptert cache ikke kunne leses på nytt etter `close()` (nøkkelen ødelegges). Tester: `CompressionUtilTest.compressedStreamCanBeReadAgainAfterReset`, `As4RereadableAttachmentTest.replaysCompleteCacheAndDeletesItOnClose`. Hele `oxalis-ng-as4`: **146 tester, 0 feil** (inkl. `SendReceiveTest`, som sender gjennom `CompressionUtil`).
-- Neste: generator på disk i testklienten (for å kunne måle), så B1.
+- Testklienten (`new-work`): `AdministrativeMessageOnDisk` (base64 strømmes til temp-fil, ~1 MiB heap; verifisert med 64 MB heap og 10 MiB melding), `getSizeInBytes()` → `long`, og `Main` logger `Client heap peak while sending` (nullstiller topp-verdiene for heap rett før sending; topp inkluderer søppel, så øvre grense).
+- **Baseline sender** (uten B3, 700 MiB, uten `-Xmx` → maks 9 216 MiB): topp **3 661 MiB** under sending.
+- Neste: samme test med B3, deretter `-Xmx3g`/`-Xmx2g` for begge bygg, så B1.
 
 ## Plan – sendersiden (etter mottakssiden)
 
