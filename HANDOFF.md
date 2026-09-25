@@ -74,6 +74,8 @@ Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `message
 
 **M10 (krypterte temp-filer):** kun JVM-flagg i brukerens server: `-Dorg.apache.cxf.io.CachedOutputStream.CipherTransformation=AES/CTR/NoPadding` (CTR strømmer; GCM ville gitt full bufring ved dekryptering igjen). CXF `CipherPair.getDecryptor()` lager ny `Cipher` per strøm, så M9s «åpne ny før gammel lukkes» er trygt. Test i oxalis-ng: `As4RereadableAttachmentTest.resetWorksWithEncryptedTempFile` (fil på disk ≠ klartekst, gjentatt `reset()` gir riktig innhold). Brukerens server med flagget: temp-filene i `/data/cxf-tmp` inneholder bare tilfeldige bytes under mottak (ingen MIME-tekst eller gzip-header) – **M10 FERDIG**. Total tid 50,6 s (mot 48,9 s uten), dvs. ~+3 %, innenfor variasjonen mellom kjøringer.
 
+**Oppstartssjekk** (brukerens server, `verifyCryptoSetup()` etter `server.start()`, stopper serveren ved feil): `AES/GCM/NoPadding` → `StreamingGCM`, GCM-dekryptering strømmer (`update()` gir klartekst med én gang), `BC` registrert, PKCS12 via `SUN`, CXF-cachemappen finnes og er skrivbar, `CipherTransformation` er satt og ikke GCM. Fanget første gang at `CipherTransformation` manglet i kjøringen; etter retting: 700 MiB med `--memory=2g`, 1 372 MiB ledig ved `ReceiptPersister` (uendret med M10).
+
 Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp-filer i `/data/cxf-tmp` (~2 × komprimert størrelse per samtidige melding under mottak). Forventet ~1,5 GB brukt ved `ReceiptPersister`. Sendersiden (runde 3–4) tas etter at mottakssiden er ferdig.
 
 ## Brukerens mottaksserver (eget repo, ikke i oxalis-ng)
