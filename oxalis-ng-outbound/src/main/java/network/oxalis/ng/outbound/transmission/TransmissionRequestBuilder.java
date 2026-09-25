@@ -22,7 +22,6 @@
 
 package network.oxalis.ng.outbound.transmission;
 
-import com.google.common.io.ByteStreams;
 import com.google.inject.Inject;
 import io.opentelemetry.api.trace.Tracer;
 import lombok.extern.slf4j.Slf4j;
@@ -41,8 +40,9 @@ import network.oxalis.ng.sniffer.identifier.InstanceId;
 import network.oxalis.ng.sniffer.sbdh.SbdhWrapper;
 import network.oxalis.vefa.peppol.common.lang.PeppolParsingException;
 import network.oxalis.vefa.peppol.common.model.*;
+import org.apache.cxf.helpers.IOUtils;
+import org.apache.cxf.io.CachedOutputStream;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -73,9 +73,10 @@ public class TransmissionRequestBuilder {
     private boolean allowOverride;
 
     /**
-     * Will contain the payload Peppol document
+     * Will contain the payload Peppol document, in memory below the CXF threshold and in a temp file above it,
+     * so a large payload is not held in heap. Each read opens a new stream from the cache.
      */
-    private byte[] payload;
+    private CachedOutputStream payload;
 
     /**
      * The address of the endpoint either supplied by the caller or looked up in the SMP
@@ -188,15 +189,16 @@ public class TransmissionRequestBuilder {
      */
     public TransmissionRequest build() throws OxalisTransmissionException, OxalisContentException {
         try (ClosableSpan ignored = tracer.spanBuilder("build").startSpan()::end) {
-            if (payload.length < 2)
+            if (payload == null || payload.size() < 2)
                 throw new OxalisTransmissionException("You have forgotten to provide payload");
 
             PeppolStandardBusinessHeader optionalParsedSbdh = null;
-            try {
-                optionalParsedSbdh =
-                        new PeppolStandardBusinessHeader(headerParser.parse(new ByteArrayInputStream(payload)));
+            try (InputStream inputStream = getPayload()) {
+                optionalParsedSbdh = new PeppolStandardBusinessHeader(headerParser.parse(inputStream));
             } catch (OxalisContentException e) {
                 // No action.
+            } catch (IOException e) {
+                throw new OxalisTransmissionException("Unable to read the payload: " + e.getMessage(), e);
             }
 
             // Calculates the effectiveStandardBusinessHeader to be used
@@ -220,13 +222,19 @@ public class TransmissionRequestBuilder {
             // make sure payload is encapsulated in SBDH
             if (optionalParsedSbdh == null) {
                 // Wraps the payload with an SBDH, as this is required for AS4
-                payload = wrapPayLoadWithSBDH(new ByteArrayInputStream(payload), effectiveStandardBusinessHeader);
+                wrapPayLoadWithSBDH(effectiveStandardBusinessHeader);
             }
+
+            // Hand the cache over to the request: its temp file is deleted when the payload stream is closed
+            InputStream requestPayload = getPayload();
+            closePayload();
 
             // Transfers all the properties of this object into the newly created TransmissionRequest
             return new DefaultTransmissionRequest(
-                    getEffectiveStandardBusinessHeader().toVefa(), getPayload(),
+                    getEffectiveStandardBusinessHeader().toVefa(), requestPayload,
                     getEndpoint(), tagGenerator.generate(Direction.OUT, tag));
+        } catch (IOException e) {
+            throw new OxalisTransmissionException("Unable to read the payload: " + e.getMessage(), e);
         }
     }
 
@@ -282,7 +290,11 @@ public class TransmissionRequestBuilder {
         if (optionallyParsedSbdh.isPresent())
             return optionallyParsedSbdh.get();
 
-        return new PeppolStandardBusinessHeader(contentDetector.parse(new ByteArrayInputStream(payload)));
+        try (InputStream inputStream = getPayload()) {
+            return new PeppolStandardBusinessHeader(contentDetector.parse(inputStream));
+        } catch (IOException e) {
+            throw new OxalisContentException("Unable to read the payload: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -358,15 +370,51 @@ public class TransmissionRequestBuilder {
     }
 
     protected void savePayLoad(InputStream inputStream) {
+        closePayload();
+        CachedOutputStream cache = new CachedOutputStream();
         try {
-            payload = ByteStreams.toByteArray(inputStream);
-        } catch (IOException e) {
+            IOUtils.copy(inputStream, cache);
+            lock(cache);
+        } catch (IOException | RuntimeException e) {
+            closeQuietly(cache);
             throw new IllegalStateException("Unable to save the payload: " + e.getMessage(), e);
+        }
+        payload = cache;
+    }
+
+    /**
+     * Opens a new stream from the start of the cached payload
+     */
+    protected InputStream getPayload() throws IOException {
+        return payload.getInputStream();
+    }
+
+    /**
+     * Finishes writing the cache and keeps its temp file while the builder reads it: CachedOutputStream otherwise
+     * deletes the file as soon as the first stream opened from it is closed.
+     */
+    private static void lock(CachedOutputStream cache) throws IOException {
+        cache.lockOutputStream();
+        cache.holdTempFile();
+    }
+
+    /**
+     * Closes the cache. Its temp file is deleted once the streams opened from it are closed as well.
+     */
+    private void closePayload() {
+        if (payload != null) {
+            payload.releaseTempFileHold();
+            closeQuietly(payload);
+            payload = null;
         }
     }
 
-    protected InputStream getPayload() {
-        return new ByteArrayInputStream(payload);
+    private static void closeQuietly(CachedOutputStream cache) {
+        try {
+            cache.close();
+        } catch (IOException e) {
+            log.warn("Unable to close the payload cache: {}", e.getMessage());
+        }
     }
 
     public Endpoint getEndpoint() {
@@ -381,10 +429,21 @@ public class TransmissionRequestBuilder {
         return endpoint != null;
     }
 
-    private byte[] wrapPayLoadWithSBDH(ByteArrayInputStream byteArrayInputStream,
-                                       PeppolStandardBusinessHeader effectiveStandardBusinessHeader) {
-        SbdhWrapper sbdhWrapper = new SbdhWrapper();
-        return sbdhWrapper.wrap(byteArrayInputStream, effectiveStandardBusinessHeader.toVefa());
+    /**
+     * Replaces the cached payload with the payload wrapped in an SBDH, streaming from one cache to the other
+     */
+    private void wrapPayLoadWithSBDH(PeppolStandardBusinessHeader effectiveStandardBusinessHeader)
+            throws IOException {
+        CachedOutputStream wrapped = new CachedOutputStream();
+        try (InputStream inputStream = getPayload()) {
+            new SbdhWrapper().wrap(inputStream, effectiveStandardBusinessHeader.toVefa(), wrapped);
+            lock(wrapped);
+        } catch (IOException | RuntimeException e) {
+            closeQuietly(wrapped);
+            throw e;
+        }
+        closePayload();
+        payload = wrapped;
     }
 
     /**

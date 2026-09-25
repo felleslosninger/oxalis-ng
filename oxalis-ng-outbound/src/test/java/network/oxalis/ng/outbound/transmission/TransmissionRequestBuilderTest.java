@@ -36,10 +36,15 @@ import network.oxalis.vefa.peppol.common.model.Endpoint;
 import network.oxalis.vefa.peppol.common.model.Header;
 import network.oxalis.vefa.peppol.common.model.ParticipantIdentifier;
 import network.oxalis.vefa.peppol.common.model.TransportProfile;
+import network.oxalis.ng.sniffer.sbdh.SbdhWrapper;
+import network.oxalis.vefa.peppol.sbdh.SbdReader;
+import org.apache.cxf.io.CachedOutputStream;
 import org.testng.annotations.*;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.security.cert.X509Certificate;
 import java.util.Map;
@@ -96,6 +101,64 @@ public class TransmissionRequestBuilderTest {
     public void tearDown() throws IOException {
         inputStreamWithSBDH.reset();
         noSbdhInputStream.reset();
+    }
+
+    @Test
+    public void largePayloadWithSbdhIsPassedOnUnchanged() throws Exception {
+        // Above the CXF cache threshold (128 KiB), so the payload is cached in a temp file instead of heap
+        byte[] payload = withLargeElement(inputStreamWithSBDH.readAllBytes());
+
+        TransmissionRequest transmissionRequest = transmissionRequestBuilder
+                .payLoad(new ByteArrayInputStream(payload))
+                .build();
+
+        try (InputStream requestPayload = transmissionRequest.getPayload()) {
+            assertEquals(requestPayload.readAllBytes(), payload);
+        }
+        assertEquals(transmissionRequest.getHeader().getReceiver(), WellKnownParticipant.RANDOM_TEST);
+    }
+
+    @Test
+    public void largePayloadIsWrappedFromCacheToCache() throws Exception {
+        // The builder only wraps a payload without SBDH when a content detector deduces the header (the test
+        // configuration has none, see the ignored tests below), so exercise the streaming wrap it uses directly
+        Header header;
+        try (SbdReader sbdReader = SbdReader.newInstance(inputStreamWithSBDH)) {
+            header = sbdReader.getHeader();
+        }
+        byte[] payload = withLargeElement(noSbdhInputStream.readAllBytes());
+
+        CachedOutputStream wrapped = new CachedOutputStream();
+        try {
+            new SbdhWrapper().wrap(new ByteArrayInputStream(payload), header, wrapped);
+            wrapped.lockOutputStream();
+            assertNotNull(wrapped.getTempFile(), "the wrapped payload is cached in a temp file");
+
+            byte[] document;
+            try (InputStream inputStream = wrapped.getInputStream()) {
+                document = inputStream.readAllBytes();
+            }
+            try (SbdReader sbdReader = SbdReader.newInstance(new ByteArrayInputStream(document))) {
+                assertEquals(sbdReader.getHeader().getReceiver(), header.getReceiver());
+            }
+            assertTrue(new String(document, StandardCharsets.UTF_8).contains(LARGE_ELEMENT_TEXT),
+                    "the large element is carried over into the wrapped payload");
+        } finally {
+            wrapped.close();
+        }
+    }
+
+    private static final String LARGE_ELEMENT_TEXT = "A".repeat(1024 * 1024);
+
+    /**
+     * Adds a 1 MiB element just before the closing tag of the root element
+     */
+    private static byte[] withLargeElement(byte[] document) {
+        String xml = new String(document, StandardCharsets.UTF_8);
+        int rootEnd = xml.lastIndexOf("</");
+        return (xml.substring(0, rootEnd)
+                + "<LargeTestData xmlns=\"urn:oxalis:test\">" + LARGE_ELEMENT_TEXT + "</LargeTestData>"
+                + xml.substring(rootEnd)).getBytes(StandardCharsets.UTF_8);
     }
 
     @Test

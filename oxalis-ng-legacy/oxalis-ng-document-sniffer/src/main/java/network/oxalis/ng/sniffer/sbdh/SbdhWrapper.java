@@ -28,6 +28,7 @@ import network.oxalis.vefa.peppol.sbdh.util.XMLStreamUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * Takes a document and wraps it together with headers into a StandardBusinessDocument.
@@ -50,13 +51,22 @@ public class SbdhWrapper {
      */
     public byte[] wrap(InputStream inputStream, Header headers) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        wrap(inputStream, headers, baos);
+        return baos.toByteArray();
+    }
 
-        try (SbdWriter sbdWriter = SbdWriter.newInstance(baos, headers)) {
+    /**
+     * Wraps payload + headers into a StandardBusinessDocument, writing it to the output stream
+     *
+     * @param inputStream  the input stream to be wrapped
+     * @param headers      the headers to use for sbdh
+     * @param outputStream receives the resulting output in utf-8, and is not closed
+     */
+    public void wrap(InputStream inputStream, Header headers, OutputStream outputStream) {
+        try (SbdWriter sbdWriter = SbdWriter.newInstance(outputStream, headers)) {
             XMLStreamUtils.copy(inputStream, sbdWriter.xmlWriter());
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to wrap document inside SBD (SBDH). " + ex.getMessage(), ex);
         }
-
-        return baos.toByteArray();
     }
 }
