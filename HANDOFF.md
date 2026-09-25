@@ -16,7 +16,7 @@ Målte størrelsesforhold (tilfeldige binærdata): base64-XML = 1,33 × binær, 
 - `messageSize = 1000 * mib` (~1,059 GB komprimert, under terskelen) med mottaker på `--memory=8g`.
 - `messageSize = 1024 * mib` (over terskelen) krever mottaker på `--memory=12g` og sender med `-Xmx6g`.
 
-Testklienten ligger i `~/src/efm-peppol-accesspoint-testing` (`client`, `messages`). **Brukerens faktiske Jetty-server ligger i et annet repo som ikke er synlig herfra** – `efm-peppol-accesspoint-testing/server` er IKKE den som kjører. Be om kode/logg i stedet for å lese derfra. `AdministrativeMessageInMemory` feilet med `OutOfMemoryError: UTF16 String size is 1431658670` (`String.replace` av `{asic}`), og må byttes ut med en generator som strømmer til temp-fil (`AdministrativeMessageOnDisk`, `getSizeInBytes()` → `long`). Sender-klienten trenger `oxalis.http.timeout.read = 900000` i `oxalis.conf`.
+Brukerens Jetty-server (`server/`), testklient (`client/`) og meldingsgenerator (`messages/`) ligger i `~/src/efm-peppol-accesspoint-testing`, gren **`new-work`** (commit 466eaf3: `StreamingGcmProvider`, `idleTimeout`, `verifyCryptoSetup`, `TamperAttachmentInterceptor`; bare `DockerfileLocal` er oppdatert). Sjekk gren og siste commit (lesende git) før du resonnerer ut fra filene der – tidligere lå ikke brukerens siste endringer i den utsjekkede koden. `AdministrativeMessageInMemory` feilet med `OutOfMemoryError: UTF16 String size is 1431658670` (`String.replace` av `{asic}`), og må byttes ut med en generator som strømmer til temp-fil (`AdministrativeMessageOnDisk`, `getSizeInBytes()` → `long`). Sender-klienten trenger `oxalis.http.timeout.read = 900000` i `oxalis.conf`.
 
 ## Status
 
