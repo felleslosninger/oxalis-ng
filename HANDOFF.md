@@ -160,7 +160,19 @@ Disk per samtidige melding: ~2,3 GB i dag, ~3,3 GB etter M9.
 - **Med B3** (samme innstillinger): topp **2 861 MiB** (−800 MiB). Resten er i hovedsak `TransmissionRequestBuilder.savePayLoad` (`ByteStreams.toByteArray`, ~2× 979 MB i topp under innlesing, ~1 GB beholdes som `ByteArrayInputStream`) → B1.
 - **B1 implementert** (ikke committet): `TransmissionRequestBuilder` holder payloaden i en CXF `CachedOutputStream` (minne under terskelen, ellers temp-fil med CXFs mappe/`MaxSize`/kryptering) i stedet for `byte[]`. Hver lesing (SBDH-parsing, innholdsdeteksjon, innkapsling, endelig payload) åpner en ny strøm. `holdTempFile()` mens builderen leser (ellers sletter CXF filen når første lesestrøm lukkes – fanget av ny test); `build()` gir cachen videre til requesten og slipper den, så temp-filen slettes når payload-strømmen lukkes. `SbdhWrapper.wrap(..., OutputStream)` for innkapsling fra cache til cache. `getPayload()` (protected) kaster nå `IOException`. API-et `payLoad(InputStream)` er uendret.
   - Tester: `largePayloadWithSbdhIsPassedOnUnchanged` (1 MiB, byte for byte), `largePayloadIsWrappedFromCacheToCache` (innkapsling rett mot filbasert cache – builderens vei uten SBDH krever en innholdsdetektor, som testoppsettet ikke har; de gamle testene for den er `@Ignore`). Full `oxalis-ng-outbound` 37/37 og `oxalis-ng-document-sniffer` 23/23 grønne; `oxalis-ng-standalone` kompilerer. (`MessagingProviderTest_*` feiler bare når de kjøres filtrert med `-Dtest`, også før B1 – OpenTelemetry-mock.)
-  - Gjenstår: brukerens måling (700 MiB, samme innstillinger).
+  - Brukerens måling (700 MiB, samme innstillinger, uten `-Xmx`): topp **126 MiB** under sending. **B1 FERDIG.**
+
+### Oppsummering sender (700 MiB binær → XML ~979 MB)
+
+| Etter | Topp under sending |
+|---|---|
+| Baseline | 3 661 MiB |
+| B3 | 2 861 MiB |
+| B3 + B1 | **126 MiB** |
+
+Gjenstår på sendersiden (ikke nødvendig for brukerens klient, som leverer SBDH og bruker `TransmissionRequestBuilder`): `PeekingInputStream`/`TransmissionRequestFactory` leser fortsatt hele payloaden i minnet.
+
+**B2 trengs ikke** (målt 2026-09-25): både Woodstox 7.1 og JDK-ens StAX deler store tekstnoder i biter når de ikke slår sammen tekst (standard, og det vefa `XMLStreamUtils.copy` bruker): 200 mill. tegn i ett element → lengste `getText()` 4 000 (Woodstox) / 16 384 (JDK) tegn. `SbdhWrapper.wrap` inn i CXF-cache (B1) pakket inn 200 MB uten SBDH med `-Xmx256m` på 0,6 s. Forbehold: `javax.xml.stream.isCoalescing=true` ville gitt problemet tilbake. `detector=legacy` (`NoSbdhParser`, DOM) er en separat minnefelle.
 
 ## Plan – sendersiden (etter mottakssiden)
 
