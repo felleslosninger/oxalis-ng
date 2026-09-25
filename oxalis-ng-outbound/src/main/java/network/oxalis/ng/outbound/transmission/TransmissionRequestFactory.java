@@ -32,12 +32,12 @@ import network.oxalis.ng.api.tag.Tag;
 import network.oxalis.ng.api.tag.TagGenerator;
 import network.oxalis.ng.api.transformer.ContentDetector;
 import network.oxalis.ng.api.transformer.ContentWrapper;
-import network.oxalis.ng.commons.io.PeekingInputStream;
 import network.oxalis.ng.commons.tracing.Traceable;
 import network.oxalis.vefa.peppol.common.model.Header;
+import org.apache.cxf.helpers.IOUtils;
+import org.apache.cxf.io.CachedOutputStream;
 
 import jakarta.inject.Inject;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -82,23 +82,34 @@ public class TransmissionRequestFactory extends Traceable {
 
     private TransmissionMessage perform(InputStream inputStream, Tag tag)
             throws IOException, OxalisContentException {
-        PeekingInputStream peekingInputStream = new PeekingInputStream(inputStream);
+        // Cached in memory below the CXF threshold and in a temp file above it, so a large payload is not held in
+        // heap. The temp file is kept while it is read more than once, and deleted once the message's payload
+        // stream is closed.
+        CachedOutputStream payload = new CachedOutputStream();
         try {
-            Header header = readHeaderFromSbdh(peekingInputStream);
-            return new DefaultTransmissionMessage(header, peekingInputStream.newInputStream(),
-                    tagGenerator.generate(Direction.OUT, tag));
-        } catch (OxalisContentException e) {
-            byte[] payload = peekingInputStream.getContent();
-            Header header = detectHeaderFromContent(payload);
-            InputStream wrappedContent = wrapContentInSbdh(header, payload);
-            return new DefaultTransmissionMessage(header, wrappedContent, tagGenerator.generate(Direction.OUT, tag));
+            IOUtils.copy(inputStream, payload);
+            payload.lockOutputStream();
+            payload.holdTempFile();
+
+            try {
+                Header header = readHeaderFromSbdh(payload);
+                return new DefaultTransmissionMessage(header, payload.getInputStream(),
+                        tagGenerator.generate(Direction.OUT, tag));
+            } catch (OxalisContentException e) {
+                Header header = detectHeaderFromContent(payload);
+                InputStream wrappedContent = wrapContentInSbdh(header, payload);
+                return new DefaultTransmissionMessage(header, wrappedContent, tagGenerator.generate(Direction.OUT, tag));
+            }
+        } finally {
+            payload.releaseTempFileHold();
+            payload.close();
         }
     }
 
-    private Header readHeaderFromSbdh(PeekingInputStream peekingInputStream) throws OxalisContentException {
+    private Header readHeaderFromSbdh(CachedOutputStream payload) throws IOException, OxalisContentException {
         Span span = tracer.spanBuilder("Reading SBDH").startSpan();
-        try {
-            Header header = headerParser.parse(peekingInputStream);
+        try (InputStream inputStream = payload.getInputStream()) {
+            Header header = headerParser.parse(inputStream);
             span.setAttribute("identifier", header.getIdentifier().getIdentifier());
             return header;
         } catch (OxalisContentException e) {
@@ -110,10 +121,10 @@ public class TransmissionRequestFactory extends Traceable {
 
     }
 
-    private Header detectHeaderFromContent(byte[] payload) throws OxalisContentException {
+    private Header detectHeaderFromContent(CachedOutputStream payload) throws IOException, OxalisContentException {
         Span span = tracer.spanBuilder("Detect SBDH from content").startSpan();
-        try {
-            Header header = contentDetector.parse(new ByteArrayInputStream(payload));
+        try (InputStream inputStream = payload.getInputStream()) {
+            Header header = contentDetector.parse(inputStream);
             span.setAttribute("identifier", header.getIdentifier().getIdentifier());
             return header;
         } catch (OxalisContentException e) {
@@ -124,10 +135,11 @@ public class TransmissionRequestFactory extends Traceable {
         }
     }
 
-    private InputStream wrapContentInSbdh(Header header, byte[] payload) throws IOException, OxalisContentException {
+    private InputStream wrapContentInSbdh(Header header, CachedOutputStream payload)
+            throws IOException, OxalisContentException {
         Span span = tracer.spanBuilder("Wrap content in SBDH").startSpan();
-        try {
-            return contentWrapper.wrap(new ByteArrayInputStream(payload), header);
+        try (InputStream inputStream = payload.getInputStream()) {
+            return contentWrapper.wrap(inputStream, header);
         } catch (OxalisContentException e) {
             span.setAttribute("exception", e.getMessage());
             throw e;

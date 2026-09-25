@@ -29,11 +29,10 @@ import network.oxalis.vefa.peppol.common.model.Header;
 import network.oxalis.vefa.peppol.sbdh.SbdWriter;
 import network.oxalis.vefa.peppol.sbdh.lang.SbdhException;
 import network.oxalis.vefa.peppol.sbdh.util.XMLStreamUtils;
+import org.apache.cxf.io.CachedOutputStream;
 
 import jakarta.inject.Singleton;
 import javax.xml.stream.XMLStreamException;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -45,15 +44,23 @@ import java.io.InputStream;
 @Type("xml")
 public class XmlContentWrapper implements ContentWrapper {
 
+    /**
+     * The wrapped content is cached in memory below the CXF threshold and in a temp file above it, so a large
+     * payload is not held in heap. The temp file is deleted when the returned stream is closed.
+     */
     @Override
     public InputStream wrap(InputStream inputStream, Header header) throws IOException, OxalisContentException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        CachedOutputStream outputStream = new CachedOutputStream();
         try (SbdWriter sbdWriter = SbdWriter.newInstance(outputStream, header)) {
             XMLStreamUtils.copy(inputStream, sbdWriter.xmlWriter());
         } catch (SbdhException | XMLStreamException e) {
+            outputStream.close();
             throw new OxalisContentException("Unable to wrap content into SBDH.", e);
         }
 
-        return new ByteArrayInputStream(outputStream.toByteArray());
+        outputStream.lockOutputStream();
+        InputStream wrapped = outputStream.getInputStream();
+        outputStream.close();
+        return wrapped;
     }
 }

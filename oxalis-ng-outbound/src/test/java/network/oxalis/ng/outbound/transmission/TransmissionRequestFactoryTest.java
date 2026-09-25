@@ -30,7 +30,9 @@ import org.testng.annotations.Guice;
 import org.testng.annotations.Test;
 
 import jakarta.inject.Inject;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 @Guice(modules = GuiceModuleLoader.class)
 public class TransmissionRequestFactoryTest {
@@ -48,5 +50,28 @@ public class TransmissionRequestFactoryTest {
         }
 
         Assert.assertNotNull(transmissionMessage.getHeader());
+    }
+
+    @Test
+    public void largePayloadWithSbdhIsPassedOnUnchanged() throws Exception {
+        MockLookupModule.resetService();
+
+        // Above the CXF cache threshold (128 KiB), so the payload is cached in a temp file instead of heap,
+        // and read twice: once for the SBDH, once as the message payload
+        byte[] payload;
+        try (InputStream inputStream = getClass().getResourceAsStream("/simple-sbd.xml")) {
+            String xml = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+            int rootEnd = xml.lastIndexOf("</");
+            payload = (xml.substring(0, rootEnd)
+                    + "<LargeTestData xmlns=\"urn:oxalis:test\">" + "A".repeat(1024 * 1024) + "</LargeTestData>"
+                    + xml.substring(rootEnd)).getBytes(StandardCharsets.UTF_8);
+        }
+
+        TransmissionMessage transmissionMessage = transmissionRequestFactory.newInstance(new ByteArrayInputStream(payload));
+
+        Assert.assertNotNull(transmissionMessage.getHeader());
+        try (InputStream messagePayload = transmissionMessage.getPayload()) {
+            Assert.assertEquals(messagePayload.readAllBytes(), payload);
+        }
     }
 }

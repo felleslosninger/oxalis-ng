@@ -32,7 +32,11 @@ import java.io.*;
  *
  * @author erlend
  * @since 4.0.0
+ * @deprecated Reads the whole stream into a byte array, so a large payload is held in heap (and one above 2 GiB
+ * cannot be read at all). No longer used by Oxalis: TransmissionRequestFactory caches the payload with CXF's
+ * CachedOutputStream instead, which spills to a temp file.
  */
+@Deprecated
 public class PeekingInputStream extends InputStream {
 
     private final byte[] content;
