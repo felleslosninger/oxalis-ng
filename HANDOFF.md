@@ -82,7 +82,7 @@ Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp
 
 ### Virker for store meldinger (testet med 700 MiB binær → XML ~979 MB, gzip ~741 MB)
 
-- **Mottak** med M8 (`StreamingGcmProvider` i serveren) + M9 + M9b + M10: 2 GB container, 62 MiB heap ved `ReceiptPersister`, temp-filer kryptert og slettet etter både vellykket og avvist melding.
+- **Mottak** med M8 (`StreamingGcmProvider` i serveren) + M9 + M9b + M10: 2 GB container, 62 MiB heap ved `ReceiptPersister`, temp-filer kryptert (M10-flagget) og slettet etter både vellykket og avvist melding. Se «Data på disk» for hva som er og ikke er kryptert.
 - **Sending** via `TransmissionRequestBuilder` (B1) og `TransmissionRequestFactory` (B1b), med B3: ~126 MiB heap-topp.
 - **Innkapsling i SBDH** av payload uten SBDH (`SbdhWrapper`, `XmlContentWrapper`) strømmer til temp-fil; store tekstnoder deles opp av StAX (B2 ikke nødvendig).
 - Ingen grense på 2³¹ byte igjen i mottak eller sending.
@@ -100,6 +100,21 @@ Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp
 | Timeouts hos andre | Andre aksesspunkter, proxyer og lastbalanserere har egne grenser | Må avklares med partnere |
 | `PeekingInputStream` | Leser alt til `byte[]` | `@Deprecated`, ikke lenger brukt av Oxalis |
 | `MessagingProviderTest_*` | Feiler bare når de kjøres filtrert (`-Dtest=...`), også før disse endringene | OpenTelemetry-mock, ikke relatert |
+
+### Data på disk – hva er kryptert (ikke «encrypted at rest»)
+
+| Data | Før endringene | Nå, uten M10-flagg | Nå, med M10-flagg (`CipherTransformation=AES/CTR/NoPadding`) |
+|---|---|---|---|
+| Mottak: rått vedlegg (CXF-cache) | AS4-kryptert på disk | AS4-kryptert på disk | Også CXF-kryptert |
+| Mottak: dekryptert vedlegg | Bare i heap | **Klartekst i temp-fil** (M9) | Kryptert temp-fil |
+| Sending: komprimert payload (`CompressionUtil`) | Klartekst i temp-fil | Klartekst i temp-fil | Kryptert temp-fil (hvis flagget er satt i klient-JVM-en) |
+| Sending: payload-cache (B1/B1b) | Bare i heap | Klartekst i temp-fil | Kryptert temp-fil (hvis flagget er satt i klient-JVM-en) |
+| Lagret resultat (`DefaultPersister`, `inbound`-mappen) | Klartekst | Klartekst | **Klartekst** – ikke berørt |
+| Heap dump (`-XX:+HeapDumpOnOutOfMemoryError`) | Kan inneholde meldingsinnhold | Samme | Samme |
+
+- Nøkkelen er per temp-fil og finnes bare i minnet; filene slettes etter både vellykket og avvist melding.
+- På mottak er M10 en **kompensasjon** for at M9 flytter dekryptert data fra heap til disk, ikke en forbedring sammenlignet med før. På sending er det en reell forbedring, men bare når flagget er satt.
+- Det er ikke riktig å beskrive dette som «encrypted at rest»: lagret resultat er fortsatt klartekst, og krypteringen er et JVM-flagg som standard Oxalis ikke setter. Se **M13**.
 
 ### Midlertidig – kan fjernes senere
 
@@ -180,6 +195,7 @@ Effekt ved 1 GB komprimert. Løsbarhet 1–5 (5 = enkelt).
 | # | Tiltak | Effekt | Omfang | Løsbarhet |
 |---|---|---|---|---|
 | M12 | **Bygg M8 inn i oxalis-ng.** Registrer `StreamingGcmProvider` (bare `Cipher.AES/GCM/NoPadding` → BC) på plass 1 i **`As4InboundModule`**, ikke i `As4CommonModule` (som også lastes av klienten). Gjør det **konfigurerbart**, f.eks. `oxalis.as4.inbound.streaming_gcm = true` som standard, fordi det gjelder hele JVM-en. Fjern den virkningsløse `jdk.security.provider.preferred`-linjen i `As4CommonModule`. Logg ved oppstart hvilken provider `AES/GCM/NoPadding` faktisk gir og om dekrypteringen strømmer (GCM-delen av brukerens `verifyCryptoSetup()`). Dokumenter at BC gir ut klartekst før taggen er sjekket (trygt i Oxalis-flyten: avvist før persistering). Tester: provideren gir `StreamingGCM` når innstillingen er på og SunJCE når den er av | Alle Oxalis-mottakere slipper 3–5× heap og 2³¹-grensen ved dekryptering; brukeren kan fjerne `StreamingGcmProvider` fra egen `Main` (beholde `verifyCryptoSetup()`) | ½–1 d | 4 |
+| M13 | **Krypter CXF sine temp-filer som standard i oxalis-ng** (gjelder mottak og sending). Sett `CachedOutputStream.setDefaultCipherTransformation("AES/CTR/NoPadding")` ved oppstart hvis `org.apache.cxf.io.CachedOutputStream.CipherTransformation` ikke allerede er satt, og gjør det mulig å slå av, f.eks. `oxalis.cache.encrypt_temp_files = true`. Aldri GCM (bufrer ved dekryptering). Logg valgt oppsett ved oppstart. Tester: temp-fil ≠ klartekst, og M9/B1/B3 leser riktig innhold med kryptering på (jf. `resetWorksWithEncryptedTempFile`) | Standard Oxalis får ikke klartekst i temp-filer som M9/B1/B3 innfører (og `CompressionUtil` allerede hadde); gjør M10-flagget unødvendig | ½ d | 5 |
 
 **Hvorfor bare mottak og konfigurerbart** (målt 2026-09-25, AES-GCM-**kryptering** av 741 MB i 16 KiB-blokker som TLS): SunJCE 4 653 MB/s (bruker CPU-ens AES-instruksjoner), BC 166 MB/s – **~28× tregere**. Ved dekryptering av store vedlegg er BC like rask (132 mot 121 MB/s), fordi SunJCE der bufrer alt. En JVM-global `StreamingGCM` ville derfor gjort WSS4J-kryptering av vedlegg på sendersiden og TLS som JVM-en selv terminerer mye tregere. Brukerens server har TLS terminert foran Jetty (HTTP på 8080), så den påvirkes ikke.
 
