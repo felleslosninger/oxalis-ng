@@ -231,6 +231,7 @@ Disk per samtidige melding: ~2,3 GB i dag, ~3,3 GB etter M9.
 | Baseline | 3 661 MiB |
 | B3 | 2 861 MiB |
 | B3 + B1 | **126 MiB** |
+| B3 + B1, kjørbar klient-jar med `-Xmx256m` | **65 MiB** (55,5 s) |
 
 **B1b implementert** (commit `88ecbd69`): den andre veien inn i klientbiblioteket. `TransmissionRequestFactory` bruker CXF `CachedOutputStream` (med `holdTempFile()` mens den leses flere ganger) i stedet for `PeekingInputStream`; `XmlContentWrapper` pakker inn til CXF-cache i stedet for `ByteArrayOutputStream` (temp-filen slettes når strømmen lukkes). `PeekingInputStream` (offentlig i `oxalis-ng-commons`, som ikke har CXF, og `getContent()` gir `byte[]`) er ikke lenger i bruk og er markert `@Deprecated`. Tester: `TransmissionRequestFactoryTest.largePayloadWithSbdhIsPassedOnUnchanged`, `XmlContentWrapperTest.largeContentIsWrapped`. `oxalis-ng-commons` 81/81, `oxalis-ng-outbound` 39/39; standalone og testbed kompilerer.
 
