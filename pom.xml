@@ -83,7 +83,7 @@
         <jakarta.xml.soap-api.version>3.0.2</jakarta.xml.soap-api.version>
         <saaj-impl.version>3.0.4</saaj-impl.version>
         <google.guice.version>7.0.0</google.guice.version>
-        <guava.version>33.4.8-jre</guava.version>
+        <guava.version>33.7.1-jre</guava.version>
         <commons-dbcp2.version>2.13.0</commons-dbcp2.version>
         <httpclient.version>5.6.4</httpclient.version>
         <neethi.version>3.2.3</neethi.version>
