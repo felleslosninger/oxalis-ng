@@ -56,6 +56,7 @@ Brukerens Jetty-server (`server/`), testklient (`client/`) og meldingsgenerator 
   - Hele `oxalis-ng-as4`-testsuiten med ledig port 8080: **139 tester, 0 feil, 0 hoppet over** (inkl. `SendReceiveTest`, `AS4StatusServletTest`, MLS-testene og `As4RereadableAttachmentTest`).
   - **M9 FERDIG.** Neste: M9b (WSS-727 lokalt).
 - **M9b implementert** (commit `ed13e6a8`): `org.apache.wss4j.dom.processor.As4SignatureProcessor` = WSS4J 3.0.5 `SignatureProcessor` + WSS-727 (diff mot original er nøyaktig upstream-patchen + klassenavn; `validateSignature` er package-private for testen). Registrert i `As4Servlet.loadBus()` via `WSSConfig` på endepunktet (`endpointImpl.getProperties().put(WSSConfig.class.getName(), ...)`, `setProcessor(WSConstants.SIGNATURE, As4SignatureProcessor.class)`) – CXF bruker en `WSSConfig` fra kontekst-egenskapene hvis den finnes.
+  - **2026-11-13:** upstream oxalis-ng 1.5.1 flettet inn (WSS4J 3.0.5 → 3.0.6, GHSA-wm7f-562f-9g52). 3.0.6 har sikkerhetsrettinger i `SignatureProcessor` (replay-cache fylles først etter verifisert signatur og bruker SHA-256-identifikator, `TAG_VALIDATED_TOKEN` settes bare når tillit er etablert, streng nøkkellengdekontroll), men ikke WSS-727. Kopien er derfor laget på nytt fra 3.0.6; diffen mot originalen er uendret.
   - Verifisert at Santuarios `XMLSignature.validate` gjør det samme som upstream-løkken (manifester valideres bare med `org.jcp.xml.dsig.validateManifests`, som WSS4J ikke setter).
   - Tester: `As4SignatureProcessorTest` (4): verifisering over body + vedlegg via `WSSecurityEngine`, endret vedlegg avvises, ingen digest-input bufret for vedleggsreferansen (body fortsatt bufret), og kontrolltest som viser at gammel `validate` bufrer hele vedlegget.
   - Hele `oxalis-ng-as4`: **143 tester, 0 feil**. `SendReceiveTest` med debug-logging viser at serveren bruker `As4SignatureProcessor` (klienten bruker standard `SignatureProcessor` for kvitteringen).
@@ -120,7 +121,7 @@ Heap-bruken vokser ikke lenger med meldingsstørrelsen; store data går via temp
 
 | Hva | Hvor | Fjernes når |
 |---|---|---|
-| **`As4SignatureProcessor`** (M9b, backport av WSS-727) + registreringen i `As4Servlet` + `As4SignatureProcessorTest` | oxalis-ng, `org.apache.wss4j.dom.processor` | Oxalis bruker en WSS4J-release med WSS-727. Per 2026-09-25 finnes ingen: siste på Maven Central er WSS4J 4.0.1, som også er det CXF 4.1.8 bruker. **Viktig:** klassen er en kopi av WSS4J **3.0.5**. Oppgraderes WSS4J/CXF (f.eks. til CXF 4.1 / WSS4J 4.0.x) før WSS-727 er ute, må kopien lages på nytt fra den nye versjonens `SignatureProcessor` – ellers nedgraderes signaturverifiseringen og mister nyere sikkerhetsrettinger (f.eks. replay-cache-fiksen #699) |
+| **`As4SignatureProcessor`** (M9b, backport av WSS-727) + registreringen i `As4Servlet` + `As4SignatureProcessorTest` | oxalis-ng, `org.apache.wss4j.dom.processor` | Oxalis bruker en WSS4J-release med WSS-727. Per 2026-09-25 finnes ingen: siste på Maven Central er WSS4J 4.0.1, som også er det CXF 4.1.8 bruker. **Viktig:** klassen er en kopi av WSS4J **3.0.6** (laget på nytt fra 3.0.5 → 3.0.6 2026-11-13). Oppgraderes WSS4J/CXF (f.eks. til CXF 4.1 / WSS4J 4.0.x) før WSS-727 er ute, må kopien lages på nytt fra den nye versjonens `SignatureProcessor` – ellers nedgraderes signaturverifiseringen og mister nyere sikkerhetsrettinger (f.eks. replay-cache-fiksen #699) |
 | `StreamingGcmProvider` i brukerens `Main` | Brukerens server | Når **M12** er gjort (bygget inn i oxalis-ng). SunJCE-oppførselen er bevisst i JDK og forsvinner ikke ved oppgradering |
 | `verifyCryptoSetup()`s GCM-sjekk | Brukerens server | Bør beholdes; en tilsvarende oppstartslogg kommer inn i oxalis-ng med M12 |
 | M9/B3 (`As4MarkableCachedInputStream`, `As4RereadableDataSource`, `CompressionUtil`) | oxalis-ng | Ikke knyttet til en oppgradering: WSS4J `AttachmentContentSignatureTransform` bruker fortsatt `mark(Integer.MAX_VALUE)` på `master`. Kan fjernes bare hvis WSS4J endrer det (kandidat for upstream-patch, B6) |
@@ -325,6 +326,6 @@ public class GcmTest {
 
 ## Nyttige referanser i tredjepartskode
 
-- WSS4J 3.0.5: `org.apache.wss4j.dom.transform.AttachmentContentSignatureTransform#processAttachment`, `org.apache.wss4j.common.util.AttachmentUtils#setupAttachmentDecryptionStream`, `org.apache.wss4j.common.util.KeyUtils#getCipherInstance`
+- WSS4J 3.0.6: `org.apache.wss4j.dom.transform.AttachmentContentSignatureTransform#processAttachment`, `org.apache.wss4j.common.util.AttachmentUtils#setupAttachmentDecryptionStream`, `org.apache.wss4j.common.util.KeyUtils#getCipherInstance`
 - CXF 4.0.11: `org.apache.cxf.ws.security.wss4j.AttachmentCallbackHandler`, `WSS4JInInterceptor` (linje ~267, handler er hardkodet), `org.apache.cxf.binding.soap.saaj.SAAJInInterceptor`, `org.apache.cxf.transport.http.HttpClientHTTPConduit`
 - Kildejarer: `~/.m2/repository/org/apache/{wss4j,cxf}/...-sources.jar`
