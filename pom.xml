@@ -28,7 +28,7 @@
 
     <groupId>network.oxalis</groupId>
     <artifactId>oxalis-ng</artifactId>
-    <version>1.5.1-SNAPSHOT</version>
+    <version>1.5.2-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Oxalis-NG :: Parent</name>
@@ -65,11 +65,11 @@
         <maven.compiler.target>11</maven.compiler.target>
         <lombok.version>1.18.38</lombok.version>
         <metainf-services.version>1.11</metainf-services.version>
-        <network.oxalis.ng.version>1.5.1-SNAPSHOT</network.oxalis.ng.version>
+        <network.oxalis.ng.version>1.5.2-SNAPSHOT</network.oxalis.ng.version>
         <vefa.peppol.version>4.6.0</vefa.peppol.version>
         <peppol.sbdh.version>2.5.0</peppol.sbdh.version>
         <cxf.version>4.0.11</cxf.version>
-        <wss4j.version>3.0.5</wss4j.version>
+        <wss4j.version>3.0.6</wss4j.version>
         <bouncycastle.version>1.85</bouncycastle.version>
         <bouncycastle.bcprov.version>1.85.2</bouncycastle.bcprov.version>
         <jakarta.xml.bind-api.version>4.0.2</jakarta.xml.bind-api.version>
